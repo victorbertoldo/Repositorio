@@ -1,0 +1,6 @@
+WITH CONNECTION (
+ URL "https://www.multbovinos.com/servicos/resumo-producao/resumo-producao-por-indicadores/",
+ HTTPHEADER "Authorization" "$(vAccessTokenValue)",
+ HTTPHEADER  "Content-Type" "application/json",
+ BODY "$(vRequestBody)"
+ );

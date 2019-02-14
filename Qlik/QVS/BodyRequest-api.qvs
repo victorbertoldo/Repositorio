@@ -1,0 +1,7 @@
+LET vRequestBody = '{';
+LET vRequestBody = vRequestBody & '""fazenda"": 3162,';
+LET vRequestBody = vRequestBody & '""indicador"": 1,';
+LET vRequestBody = vRequestBody & '""periodo_inicial"": ';	
+LET vRequestBody = vRequestBody & '""' & Date($(vData),'DD/MM/YYYY') & '""' & ',';
+LET vRequestBody = vRequestBody & '""periodo_final"": ';	
+LET vRequestBody = vRequestBody & '""' & Date($(vData),'DD/MM/YYYY') & '""' & '}';

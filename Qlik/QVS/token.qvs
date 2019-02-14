@@ -1,0 +1,7 @@
+
+//Jogando o token pra dentro da variavel e concatenando com o JWT
+LET vAccessTokenValue = 'JWT ';
+LET vAccessTokenValue = vAccessTokenValue & Peek('token');
+
+//Jogando o token para memória em tempo de execução
+trace $(vAccessTokenValue);
