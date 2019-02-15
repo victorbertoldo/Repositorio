@@ -1,0 +1,5 @@
+let vData = date(today(),'YYYY-MM-DD');
+Let vData = vData & '_';
+LET vData = vData & time(now(),'HHmmss'); 
+Let vStagePath = '[lib://QVD/';
+Let vStagePathEnd = '.qvd](qvd)';
