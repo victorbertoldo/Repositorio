@@ -1,3 +1,4 @@
+//Montando o request body do POST
 LET vRequestBody = '{';
 LET vRequestBody = vRequestBody & '""fazenda"": 3162,';
 LET vRequestBody = vRequestBody & '""indicador"": 1,';
