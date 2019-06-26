@@ -1,0 +1,2397 @@
+﻿///$tab Main
+SET ThousandSep=',';
+SET DecimalSep='.';
+SET MoneyThousandSep=',';
+SET MoneyDecimalSep='.';
+SET MoneyFormat='£#,##0.00;-£#,##0.00';
+SET TimeFormat='hh:mm:ss';
+
+
+// Configure these variables as required
+
+SET DateFormat='DD-MMM-YYYY';
+SET TimestampFormat='DD-MMM-YYYY hh:mm:ss[.fff]';
+SET MonthNames='Jan;Feb;Mar;Apr;May;Jun;Jul;Aug;Sep;Oct;Nov;Dec';
+SET DayNames='Mon;Tue;Wed;Thu;Fri;Sat;Sun';
+
+///$tab COMMENTS
+
+/*
+
+	Developed by Richard Pearce
+	www.QlikCentral.com
+	
+	Please feel free to use this code within your developments.
+	
+	
+	
+	Version History:
+	V1.0 - 2014, 		Orignal development
+	V1.1 - May 2015, 	Added Code to compare shifting Holidays such as Easter
+						Added Code for previous year inclusive. For example the last three complete years prior to the selected date
+						Fixed issue with [%Cumulative Month (#)] and [%Cumulative Quarter (#)] not populating
+
+	V1.2 - Nov 2015,	Added HIC's As Of Month and Year Fields (https://community.qlik.com/blogs/qlikviewdesignblog/2015/11/02/the-as-of-table)
+						Added From and To Dates as new tables
+
+	V1.3 - Nov 2015,	Added Financial Fields to Calendar Load
+	
+	V1.4 - Nov 2015,	General Bug Fixing
+	
+	V1.5 - Jan 2016,	Added Finanical YTD Field
+	
+	
+
+	To Do:
+	Finanical Weeks
+
+*/
+///$tab SET UP
+// Financial Month. i.e. 1=January, 4=April
+LET vFinancialMonthStart					= 	4;
+
+
+
+// Here we set the min and max dates for the calendar, you can expand the script to pick the values up from the tables loaded
+// Or, if you're creating a separate QVD to be used by multiple dashboard use the where exists function to load only the dates required. (expand comments)
+
+LET vCalendar_Start_Date 					=	'41275'; // 01-Jan-2011
+LET vCalendar_End_Date 						=	num(floor(Today()+1000)); // 31-Dec-2015 // 3 Years Ahead
+
+
+// We minus one from the start date as they're generated using IterNo() function on CALENDAR LOAD tab
+// We calculate the days between the dates and use it in the WHILE funtion on the CALENDAR LOAD tab
+LET vCalendar_Start_Date 					=	vCalendar_Start_Date -1;
+LET vCalendar_Number_Days_Between_Dates		= 	vCalendar_End_Date - vCalendar_Start_Date;
+
+
+///$tab MAPPING
+// These mapping tables are used in the CALENDAR LOAD tab.
+
+// Here we will set up the basic working day flags
+
+
+// Mapping tables are used for Weekend and Weekday Flags. 0 = Monday - 6 = Sunday
+Weekday_MAP:
+Mapping
+LOAD * Inline [
+Weekday		,%Flag_Weekday
+0			,1
+1			,1
+2			,1
+3			,1
+4			,1
+];
+
+Weekend_MAP:
+Mapping
+LOAD * Inline [
+Weekday		,%Flag_Weekend
+5			,1
+6			,1
+];
+///$tab SPECIAL DATES
+/*
+	V1.1	This code will work out previous special dates such as Christmas, Easter, School Holidats, etc.
+
+			%HolidayGroup & %HolidayGroup_No are linked by the same number, For example:
+				Good Friday and Easter Monday (Easter) 2013 both have the %HolidayGroup_No 1	
+				Good Friday and Easter Monday (Easter) 2014 both have the %HolidayGroup_No 2		
+				
+				This allows dates to cross over a year, such as 
+				New Years Eve 2013 and New Years Day 2014 (New Year) both have the same %HolidayGroup_No
+				
+			This Method can also be used to create financial periods such as 4 or 5 week months
+			
+
+			%Flag_Holiday denotes if this date in considered to be a working day. For example
+				Christmas Eve is a working day with %Flag_Holiday set to zero
+				Christmas Day isn't a working day with %Flag_Holiday set to 1
+
+*/
+
+Temp_DateTable:
+LOAD * Inline [
+%KeyDate	,%Flag_Holiday	,%HolidayGroup	,%HolidayGroup_No	,%HolidayLabel				,%HolidayLabel_No
+40910		,1				,New Year		,1					,New Year's Day				,1
+41005		,1				,Easter			,1					,Good Friday				,1
+41008		,1				,Easter			,1					,Easter Monday				,1
+41036		,1				,Bank Holiday	,1					,Early May Bank Holiday		,1
+41064		,1				,Bank Holiday	,1					,Spring Bank Holiday		,1
+41065		,1				,Special		,6					,Queens Diamond Jubilee		,1
+41148		,1				,Bank Holiday	,1					,Summer Bank Holiday		,1
+41267		,0				,Christmas		,1					,Christmas Eve				,1
+41268		,1				,Christmas		,1					,Christmas Day				,1
+41269		,1				,Christmas		,1					,Boxing Day					,1
+41274		,0				,New Year		,2					,New Year's Eve				,1
+41275		,1				,New Year		,2					,New Year's Day				,2
+41356		,1				,Easter			,2					,Good Friday				,2
+41365		,1				,Easter			,2					,Easter Monday				,2
+41400		,1				,Bank Holiday	,2					,Early May Bank Holiday		,2
+41421		,1				,Bank Holiday	,2					,Spring Bank Holiday		,2
+41512		,1				,Bank Holiday	,2					,Summer Bank Holiday		,2
+41632		,1				,Christmas		,2					,Christmas Eve				,2
+41633		,1				,Christmas		,2					,Christmas Day				,2
+41634		,1				,Christmas		,2					,Boxing Day					,2
+41639		,0				,New Year		,3					,New Year's Eve				,2
+41640		,1				,New Year		,3					,New Year's Day				,3
+41747		,1				,Easter			,3					,Good Friday				,3
+41750		,1				,Easter			,3					,Easter Monday				,3
+41764		,1				,Bank Holiday	,3					,Early May Bank Holiday		,3
+41785		,1				,Bank Holiday	,3					,Spring Bank Holiday		,3
+41876		,1				,Bank Holiday	,3					,Summer Bank Holiday		,3
+41997		,0				,Christmas		,3					,Christmas Eve				,3
+41998		,1				,Christmas		,3					,Christmas Day				,3
+41999		,1				,Christmas		,3					,Boxing Day					,3
+42004		,0				,New Year		,4					,New Year's Eve				,3
+42005		,1				,New Year		,4					,New Year's Day				,4
+42097		,1				,Easter			,4					,Good Friday				,4
+42100		,1				,Easter			,4					,Easter Monday				,4
+42128		,1				,Bank Holiday	,4					,Early May Bank Holiday		,4
+42149		,1				,Bank Holiday	,4					,Spring Bank Holiday		,4
+42247		,1				,Bank Holiday	,4					,Summer Bank Holiday		,4
+42362		,0				,Christmas		,4					,Christmas Eve				,4
+42363		,1				,Christmas		,4					,Christmas Day				,4
+42366		,1				,Christmas		,4					,Boxing Day					,4
+42369		,0				,New Year		,5					,New Year's Eve				,4
+42370		,1				,New Year		,5					,New Year's Day				,5
+42454		,1				,Easter			,5					,Good Friday				,5
+42457		,1				,Easter			,5					,Easter Monday				,5
+42492		,1				,Bank Holiday	,5					,Early May Bank Holiday		,5
+42520		,1				,Bank Holiday	,5					,Spring Bank Holiday		,5
+42611		,1				,Bank Holiday	,5					,Summer Bank Holiday		,5
+42728		,0				,Christmas		,5					,Christmas Eve				,5
+42729		,1				,Christmas		,5					,Christmas Day				,5
+42730		,1				,Christmas		,5					,Boxing Day					,5
+42735		,1				,New Year		,6					,New Year's Eve				,5
+];
+
+
+
+
+// ************************** MAPPING TABLES ************************************
+
+
+
+Holiday_MAP: // <<-------------------	Boleen Table where data is considered a pulic holiday compulsery for many (ie: Banks Holidays)
+Mapping Load %KeyDate, 
+     %Flag_Holiday
+Resident Temp_DateTable
+Where %Flag_Holiday=1;
+
+
+
+HolidayGroup_MAP: // <<--------------	Contains the Holiday Type (ie: Easter, Christmas, New Year)
+Mapping LOAD %KeyDate, 
+     %HolidayGroup
+Resident Temp_DateTable;
+
+HolidayLabel_MAP: // <<---------------	Contains the Holiday Name (ie: Good Friday, Easter Monday, Christmas Day)
+Mapping LOAD %KeyDate, 
+     %HolidayLabel
+Resident Temp_DateTable;
+
+
+
+
+HolidayGroupNumber_MAP: // <<--------------	Contains the Holiday Type Number (ie: Easter, Christmas, New Year)
+Mapping LOAD %KeyDate, 
+     %HolidayGroup_No
+Resident Temp_DateTable;
+
+
+HolidayLabelNumber_MAP: // <<---------------	Contains the Holiday Name Number (ie: Good Friday, Easter Monday, Christmas Day)
+Mapping LOAD %KeyDate, 
+     %HolidayLabel_No
+Resident Temp_DateTable;
+
+
+Drop Table Temp_DateTable;
+///$tab CALENDAR LOAD
+// Here we set up a basic Master Calendar
+// Feel free to add additional field although removing any below may stop the rest of the script from working
+
+
+
+
+Original_Calendar:
+Load 
+	RowNo() 																							as [%CalendarRow (#)]
+	,%KeyDate																							as %KeyDate	
+	,Num(%KeyDate)																						AS DateNum		 
+	,Date(%KeyDate	)																					as Date	
+	,num(WeekDay(%KeyDate	))																			as [Week Day (#)]
+	,Week(%KeyDate	)																					as Week
+
+	,num(Month(%KeyDate	))																				as [Month (#)]				
+	,ceil(Month(%KeyDate	)/3) 																		as [Quarter (#)]			
+	,Year(%KeyDate	)																					as Year
+
+	,if(%KeyDate=$(vCalendar_Start_Date)+1,1,
+		if(%KeyDate=floor(MonthStart(%KeyDate))
+			,Peek([%Cumulative Month (#)])+1
+			,Peek([%Cumulative Month (#)],-1)))															as [%Cumulative Month (#)]		// Starts the first month as one and increases cumulatively  - Look to incorporate this into the flag generation
+		
+	,if(%KeyDate=$(vCalendar_Start_Date)+1,1,
+		if(%KeyDate=floor(QuarterStart(%KeyDate))
+			,Peek([%Cumulative Quarter (#)])+1
+			,Peek([%Cumulative Quarter (#)])))															as [%Cumulative Quarter (#)]		// Starts the first month as one and increases cumulatively  - Look to incorporate this into the flag generation
+		
+
+	// Dual fields are used to display text whilst retaining the interger for sorting
+	,dual(WeekDay(%KeyDate	),num(WeekDay(%KeyDate	)))													as [Week Day]
+	,dual('Q' & ceil(Month(%KeyDate	)/3),ceil(Month(%KeyDate	)/3))									as Quarter
+	,dual(Month(%KeyDate	),num(Month(%KeyDate	)))													as Month
+	,dual(Text(Date(%KeyDate	,'YYYY-MMM')),monthstart(Date(%KeyDate)))								as [Year Month]
+	,dual(Text(Date(%KeyDate	,'MMM-YYYY')),monthstart(Date(%KeyDate)))								as [Month Year]
+
+	// These flags are created using the mapping tables found in MAPPING tab
+	,ApplyMap('Holiday_MAP',%KeyDate	,0)																as %Flag_Holiday
+	,ApplyMap('HolidayGroup_MAP',%KeyDate	,null())													as [Holiday Group]
+	,ApplyMap('HolidayLabel_MAP',%KeyDate	,null())													as [Holiday Name]
+	,ApplyMap('HolidayGroupNumber_MAP',%KeyDate	,null())												as %HolidayGroup_No
+	,ApplyMap('HolidayLabelNumber_MAP',%KeyDate	,null())												as %HolidayLabel_No
+
+	
+	,ApplyMap('Weekday_MAP',WeekDay(%KeyDate	),0)													as %Flag_Weekday
+	,ApplyMap('Weekend_MAP',WeekDay(%KeyDate	),0)													as %Flag_Weekend
+
+
+	// A Working Day Flag is created by analysing the feilds above. i.e. If the date is a weekday and not a holiday then business day is true
+	,if(ApplyMap('Weekday_MAP',WeekDay(%KeyDate	),0)=1 
+		and ApplyMap('Holiday_MAP',%KeyDate	,0) = 0,1,0)												as %Flag_BusinessDay
+	
+	
+	// Detirmin the last business day. For instance on a Sunday typically the last Business Day would be the previous Friday	
+	,if(ApplyMap('Weekday_MAP',WeekDay(%KeyDate	),0)=1 
+		and ApplyMap('Holiday_MAP',%KeyDate	,0) = 0
+		,Date(%KeyDate)
+		,peek([Last Business Day]))																		as [Last Business Day]		 	
+
+	// Count of days since last business day.	For instance on a Sunday typically the last Business Day would be the previous Friday returning a value of 3
+	,%KeyDate	- peek([Last Business Day])																as %Day_Count_Since_Last_BusinessDay		
+	
+	// Will use these to create a mapping tables in MAPPING 2 tab, the fields will then be dropped
+	,Floor(MonthEnd(%KeyDate))																			as %MonthEnd_Mapping 
+	,Floor(QuarterEnd(%KeyDate))																		as %QuarterEnd_Mapping 
+	,Floor(YearEnd(%KeyDate))																			as %YearEnd_Mapping 
+	
+	
+	// V1.3 - Financial Fields
+	,Dual('Q' & Ceil((Mod(Month(%KeyDate) - $(vFinancialMonthStart), 12)+1 )/3)
+		, Ceil((Mod(Month(%KeyDate) - $(vFinancialMonthStart), 12)+1 )/3)) 								AS FiscalQtr   
+		
+	,Dual(Text(Date(MonthEnd(%KeyDate), 'MMM'))
+		, (Mod(Month(%KeyDate) - $(vFinancialMonthStart), 12)+1 )) 										AS FiscalMonthName
+		 
+	,Mod(Month(%KeyDate) - $(vFinancialMonthStart), 12)+1 												AS FiscalMonth   
+	,YearName(%KeyDate, 0, $(vFinancialMonthStart)) 													AS FiscalYear  
+
+
+	;
+Load
+
+	$(vCalendar_Start_Date) + IterNo()															as %KeyDate		
+	
+AutoGenerate 1
+While IterNo() <= $(vCalendar_Number_Days_Between_Dates);
+
+
+
+		
+///$tab MAPPING 2
+/*
+	Here we create mapping tables to detirmin the last Busines Day in each period.
+	
+	These are applied in the CARTESIAN PRODUCT tab
+
+*/
+
+LastBusinessDay_Month_MAP:
+Mapping LOAD Distinct
+		%MonthEnd_Mapping			as Source 
+		,max([Last Business Day])	as Destination
+Resident Original_Calendar
+group by %MonthEnd_Mapping;
+
+
+LastBusinessDay_Quarter_MAP:
+Mapping LOAD Distinct
+		%QuarterEnd_Mapping			as Source 
+		,max([Last Business Day])	as Destination
+Resident Original_Calendar
+group by %QuarterEnd_Mapping;
+
+
+LastBusinessDay_Year_MAP:
+Mapping LOAD Distinct
+		%YearEnd_Mapping			as Source 
+		,max([Last Business Day])	as Destination
+Resident Original_Calendar
+group by %YearEnd_Mapping;
+
+
+Drop Field %MonthEnd_Mapping,%QuarterEnd_Mapping,%YearEnd_Mapping;	
+///$tab PREVIOUS BUSINESS DATES
+/*
+	In the CALENDAR LOAD tab we created a master calendar and using Mapping tables defined when days were and
+	were not business days, these are typically weekend and public holidays.
+	
+	We need to create Date Fields that correspond with %KeyDate counting back the correct number of Business Days
+	skipping any holidays as they go.
+
+	
+	First we create an offset counter using %Day_Count_Since_Last_BusinessDay. As we create more offset fields  
+	we cumulate their value.
+
+	Once we know how many steps to go back relative to each %KeyDate we reload the table and Peek the 
+	LBD (aka [Last Business Day]) using the offset we have just defined.
+
+	This gives us a relative BusinessDateM1 (the M stands for Minus) for each %KeyDate which will we us in the
+	PREVIOUS PERIODS tab to generate the Flags.
+	
+	Note - BusinessDateM# are dropped in the CLEAN UP tab
+
+*/
+
+// Calculate the Offset values
+Previous_Business_Day_Counters:
+Load 
+	%KeyDate
+	,[Last Business Day]														as [LBD]
+	,%Day_Count_Since_Last_BusinessDay											as %BusinessDayOffset_M1
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M1)				as %BusinessDayOffset_M2
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M2)				as %BusinessDayOffset_M3
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M3)				as %BusinessDayOffset_M4
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M4)				as %BusinessDayOffset_M5
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M5)				as %BusinessDayOffset_M6
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M6)				as %BusinessDayOffset_M7
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M7)				as %BusinessDayOffset_M8
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M8)				as %BusinessDayOffset_M9
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M9)				as %BusinessDayOffset_M10
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M10)				as %BusinessDayOffset_M11	
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M11)				as %BusinessDayOffset_M12	
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M12)				as %BusinessDayOffset_M13	
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M13)				as %BusinessDayOffset_M14	
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M14)				as %BusinessDayOffset_M15	
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M15)				as %BusinessDayOffset_M16	
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M16)				as %BusinessDayOffset_M17	
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M17)				as %BusinessDayOffset_M18	
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M18)				as %BusinessDayOffset_M19
+	,%Day_Count_Since_Last_BusinessDay+Peek(%BusinessDayOffset_M19)				as %BusinessDayOffset_M20		
+		
+Resident Original_Calendar
+Order by %KeyDate;
+
+
+
+
+// Loads the previous Business Days using the offsets
+Previous_Business_Dates:
+Load 
+	%KeyDate
+	,[LBD]		as [LBD]
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M1) 	as BusinessDateM1
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M2) 	as BusinessDateM2
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M3) 	as BusinessDateM3
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M4) 	as BusinessDateM4
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M5) 	as BusinessDateM5
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M6) 	as BusinessDateM6
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M7) 	as BusinessDateM7
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M8) 	as BusinessDateM8
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M9) 	as BusinessDateM9
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M10) 	as BusinessDateM10
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M11) 	as BusinessDateM11
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M12) 	as BusinessDateM12
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M13) 	as BusinessDateM13
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M14) 	as BusinessDateM14
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M15) 	as BusinessDateM15
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M16) 	as BusinessDateM16
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M17) 	as BusinessDateM17
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M18) 	as BusinessDateM18
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M19) 	as BusinessDateM19
+	,Peek(LBD,$(RowNo())-%BusinessDayOffset_M20) 	as BusinessDateM20
+
+	
+Resident Previous_Business_Day_Counters
+Order by %KeyDate;
+
+drop Field LBD;
+Drop Table Previous_Business_Day_Counters;
+
+
+
+
+
+
+
+
+
+///$tab CARTESIAN PRODUCT
+/* This script creates what is known as a CARTESIAN PRODUCT
+
+We take %KeyDate and create every possible combination. For example, if have three %KeyDate's:
+1
+2
+3
+
+The cartesian product would look like this:
+%KeyDate	,[Possible_KeyDate]
+1			,1
+1			,2
+1			,3
+2			,1
+2			,2
+2			,3
+3			,1
+3			,2
+3			,3
+
+365 days would translate to 66.7k rows and %KeyDate Date is linked to all possible %KeyDates
+
+Then join back the Master Calender Fields created in the CALENDAR LOAD tab to apply the standard fields to all records
+
+
+// date from and too. be used as link tables, need to look at how to limit greater and less than dates from selected.
+
+
+*/
+
+
+//1.	Get a list of all distinct dates from the FACT table
+Cartesian_Product:
+LOAD DISTINCT
+	%KeyDate
+RESIDENT Original_Calendar;
+
+//2.	Create a Cartesian product of these dates with another load of distinct dates from the Master Calendar
+//		No common fields means by joining we will get a Cartesian product (a duplicate row of the fact date for every date in the calendar)
+JOIN (Cartesian_Product)
+LOAD DISTINCT
+	%KeyDate	AS	[Possible_KeyDate]
+RESIDENT Original_Calendar;
+
+//3.	Join to the Calendar table to bring in the standart feild and create Start and End flags (remove the Right and check performance)
+Right Join (Original_Calendar)
+LOAD
+	%KeyDate																							AS	Date
+	,num([Possible_KeyDate])																			AS	Possible_KeyDate
+	
+	// Possible Standard Flags for use in tables:
+	,dual(WeekDay(Possible_KeyDate	),num(WeekDay(Possible_KeyDate	)))									as [Week Day P]
+	
+	
+	
+	
+	
+	
+	
+	,AutoNumber(%KeyDate & num([Possible_KeyDate])) 													as	%CalendarID	
+
+	// Used for selecting Business Dates within a range of Dates
+	// Load * Year='2014' and %Flag_BusinessDayInclusive = 1 
+	// is the same as 
+	// Load * where Year='2014' and %Flag_IsThisDate = 1 and %Flag_BusiessDay=1
+	,if(ApplyMap('Weekday_MAP',WeekDay([Possible_KeyDate]	),0)=1 
+		and ApplyMap('Holiday_MAP',[Possible_KeyDate]	,0) = 0,1,0)									as %Flag_BusinessDayInclusive 
+	
+
+	,ApplyMap('LastBusinessDay_Month_MAP',Floor(MonthEnd([Possible_KeyDate])))							as [Last Business Day In Month]
+	,ApplyMap('LastBusinessDay_Quarter_MAP',Floor(MonthEnd([Possible_KeyDate])))						as [Last Business Day In Quarter]
+	,ApplyMap('LastBusinessDay_Year_MAP',Floor(MonthEnd([Possible_KeyDate])))							as [Last Business Day In Year]
+
+	
+	// Start and End dates are used to calculate PREVIOUS PERIODS and some POINT IN TIME feilds
+	,Floor(WeekStart([Possible_KeyDate]))																as [Week Start]
+	,Floor(WeekEnd([Possible_KeyDate]))																	as [Week End]
+	,Floor(MonthStart([Possible_KeyDate]))																as [Month Start]
+	,Floor(MonthEnd([Possible_KeyDate]))																as [Month End]	
+	,Floor(QuarterStart([Possible_KeyDate]))															as [Quarter Start]
+	,Floor(QuarterEnd([Possible_KeyDate]))																as [Quarter End]
+	,Floor(YearStart([Possible_KeyDate]))																as [Year Start]
+	,Floor(YearEnd([Possible_KeyDate]))																	as [Year End]
+
+	,YearStart(Possible_KeyDate,0, $(vFinancialMonthStart))                  							AS [Fiscal Year Start] 
+ 	,YearEnd(Possible_KeyDate,0, $(vFinancialMonthStart))  	                							AS [Fiscal Year End] 	
+	
+
+	
+	
+	// V1.1 Re-map the Holiday Group and Label fields, these fields are dropped at the end
+	,ApplyMap('HolidayGroup_MAP',Possible_KeyDate	,null())											as %HolidayGroup_Possible
+	,ApplyMap('HolidayLabel_MAP',Possible_KeyDate	,null())											as %HolidayLabel_Possible
+	,ApplyMap('HolidayGroupNumber_MAP',Possible_KeyDate	,null())										as %HolidayGroup_No_Possible
+	,ApplyMap('HolidayLabelNumber_MAP',Possible_KeyDate	,null())										as %HolidayLabel_No_Possible
+
+
+	
+RESIDENT Cartesian_Product;
+
+Drop Table Cartesian_Product;
+
+
+// Join the Previous Business Date flags created in the PREVIOUS BUSINESS DATES tab
+Left Join (Original_Calendar)
+Load *
+Resident Previous_Business_Dates;
+
+Drop Table Previous_Business_Dates;
+
+
+///$tab POINT IN TIME
+/* 	This code reloads the previous table and creates Point in Time flags... 
+	
+	The master calendar links all possible %DateLink with each date these flags specify the scope. 
+	For instance if a user has selected Date 8-Jan-2014 that will be repeated over all the lines in the Master Calendar
+	linking it to every possible %KeyDate. 
+	
+	Within the set analysis or user controled flags you can specify how that Date is interpreted. For instance if you have a calulation for sales:
+	Sum ({<%Flag_IsThisDate={1}>}		[Sales Amount]) 	This will calculate the sales for 8-Jan-2014
+	Sum ({<%Flag_ThisMonth={1}>}		[Sales Amount]) 	This will calculate the sales for the whole of Jan-2014
+	Sum ({<%Flag_ThisMonthToDate={1}>}	[Sales Amount]) 	This will calculate the sales from 1-Jan-2014 to 8-Jan-2014 inclusive
+
+*/
+
+Calendar_PIT:
+Load *
+	
+	// Point in time Flag, 
+	,If(Possible_KeyDate=%KeyDate 						,1,0)																	as %Flag_IsThisDate
+
+
+//	// V1.1 Special Dates (Easter, Christmas, New Year). These would be used in conjention by selected the Holiday Group or Label in the Dashboard or by using Set Analysis
+	,if([Holiday Group]=%HolidayGroup_Possible,1,0)																				as	%Flag_HolidayGroup
+	,if([Holiday Name]=%HolidayLabel_Possible,1,0)																				as	%Flag_HolidayLabel	
+	
+	
+	
+	// Flags the current time period. ie) Date=13th Jan 2014 and %Flag_ThisMonth=1 would select KeyDates 1st-31st Jan 2014 
+	,if(%KeyDate>=[Week Start] 			and 	%KeyDate<=[Week End],1,0)														as %Flag_ThisWeek
+	,if(%KeyDate>=[Month Start] 		and 	%KeyDate<=[Month End],1,0)														as %Flag_ThisMonth
+	,if(%KeyDate>=[Quarter Start] 		and 	%KeyDate<=[Quarter End],1,0)													as %Flag_ThisQuarter
+	,if(year(Possible_KeyDate)=year(%KeyDate) 			,1,0)																	as %Flag_ThisYear
+
+	
+	// Flags the current time period to selected date. ie) Date=13th Jan 2014 and %Flag_ThisMonthToDate=1 would select KeyDates 1st-13th Jan 2014 
+	,if(%KeyDate>=[Week Start] 			and 	%KeyDate<=[Week End]		and 	Possible_KeyDate<=%KeyDate,1,0)				as %Flag_ThisWeekToDate 	
+	,if(%KeyDate>=[Month Start] 		and 	%KeyDate<=[Month End]		and 	Possible_KeyDate<=%KeyDate,1,0)				as %Flag_ThisMonthToDate 
+	,if(%KeyDate>=[Quarter Start] 		and 	%KeyDate<=[Quarter End]		and 	Possible_KeyDate<=%KeyDate,1,0)				as %Flag_ThisQuarterToDate 
+	,if(%KeyDate>=[Year Start] 			and 	%KeyDate<=[Year End]		and 	Possible_KeyDate<=%KeyDate,1,0)				as %Flag_ThisYearToDate 
+	
+	,if(%KeyDate>=[Fiscal Year Start]  	and  	%KeyDate<=[Fiscal Year End] and 	Possible_KeyDate<=%KeyDate,1,0)    			as %Flag_ThisFiscalYearToDate 
+
+
+
+	// Information Flags, to see the Date selected is one of these date types 
+	,If([Week Start]=%KeyDate 							,1,0)																	as %Flag_IsWeekStart
+	,If([Week End]=%KeyDate 							,1,0)																	as %Flag_IsWeekEnd
+	,If([Month Start]=%KeyDate 							,1,0)																	as %Flag_IsMonthStart
+	,If([Month End]=%KeyDate							,1,0)																	as %Flag_IsMonthEnd
+	,If([Quarter Start]=%KeyDate 						,1,0)																	as %Flag_IsQuarterStart
+	,If([Quarter End]=%KeyDate 							,1,0)																	as %Flag_IsQuarterEnd
+	,If([Year Start]=%KeyDate 							,1,0)																	as %Flag_IsYearStart
+	,If([Year End]=%KeyDate 							,1,0)																	as %Flag_IsYearEnd
+
+	,If([Last Business Day In Month]=%KeyDate			,1,0)																	as %Flag_IsMonthEnd_BusinessDay
+	,If([Last Business Day In Quarter]=%KeyDate			,1,0)																	as %Flag_IsQuarterEnd_BusinessDay
+	,If([Last Business Day In Year]=%KeyDate			,1,0)																	as %Flag_IsYearEnd_BusinessDay	
+
+
+	// V1.2 Code addapted from HIC's blog post https://community.qlik.com/blogs/qlikviewdesignblog/2015/11/02/the-as-of-table	
+	,if(MonthStart(Possible_KeyDate)<=[Year Month],Round(([Year Month]-MonthStart(Possible_KeyDate))*12/365.2425))				as %MonthDiff
+  	,if(MonthStart(Possible_KeyDate)<=[Year Month],Year([Year Month])-Year(Possible_KeyDate))									as %YearDiff
+
+
+	
+Resident Original_Calendar;
+
+
+///$tab PREVIOUS PERIODS
+/* 	This tab creates time comparison flags.
+	The concept being if a date is selected in the master calendar
+	Using one of these flags within the set analysis will retrieve the
+	corresponding %KeyDates.
+	
+	For example: 	=Sum({<%Flag_PreviousMonth_M1={1}> }	Sales)
+	If the Date selected was 6th Jan 2014 this expression would sum all the sales for %KeyDate's 1st Dec - 31st Dec 2013 
+
+	The flags below use %KeyDate and compare them to various points in time. Here we can see how %Flag_PreviousDay_M# is calculated:
+	,If(Possible_KeyDate=%KeyDate-1,1,0)																													as %Flag_PreviousDay_M1
+	,If(Possible_KeyDate=%KeyDate-2,1,0)																													as %Flag_PreviousDay_M2
+	,If(Possible_KeyDate=%KeyDate-3,1,0)																													as %Flag_PreviousDay_M3
+	,If(Possible_KeyDate=%KeyDate-4,1,0)																													as %Flag_PreviousDay_M4
+	
+	%KeyDate	Possible_KeyDate	%Flag_PreviousDay_M1	%Flag_PreviousDay_M2	%Flag_PreviousDay_M3	%Flag_PreviousDay_M4
+	06-Jan-2013	02-Jan-2013			0						0						0						1
+	06-Jan-2013	03-Jan-2013			0						0						1						0
+	06-Jan-2013	04-Jan-2013			0						1						0						0
+	06-Jan-2013	05-Jan-2013			1						0						0						0
+
+
+
+	Other flags work in a similar way although slightly more elaborate, for example comparing the previous week to date %Flag_PreviousWeekComparative_M1 gives us this:
+	,if([Week Start]<=%KeyDate-(7*1) 				and 	[Week End]>=%KeyDate-(7*1)				and 	Possible_KeyDate<=%KeyDate-(7*1),1,0)			as %Flag_PreviousWeekComparative_M1
+	,if([Week Start]<=%KeyDate-(7*2) 				and 	[Week End]>=%KeyDate-(7*2)				and 	Possible_KeyDate<=%KeyDate-(7*2),1,0)			as %Flag_PreviousWeekComparative_M2		
+	
+	%KeyDate	Week Start	Week End	Possible_KeyDate	%Flag_PreviousWeekComparative_M1	%Flag_PreviousWeekComparative_M2
+	23-Jan-2014	30-Dec-2013	05-Jan-2014	05-Jan-2014					0									0
+	23-Jan-2014	06-Jan-2014	12-Jan-2014	06-Jan-2014					0									1
+	23-Jan-2014	06-Jan-2014	12-Jan-2014	07-Jan-2014					0									1
+	23-Jan-2014	06-Jan-2014	12-Jan-2014	08-Jan-2014					0									1
+	23-Jan-2014	06-Jan-2014	12-Jan-2014	09-Jan-2014					0									1
+	23-Jan-2014	06-Jan-2014	12-Jan-2014	10-Jan-2014					0									0
+	23-Jan-2014	06-Jan-2014	12-Jan-2014	11-Jan-2014					0									0
+	23-Jan-2014	06-Jan-2014	12-Jan-2014	12-Jan-2014					0									0
+	23-Jan-2014	13-Jan-2014	19-Jan-2014	13-Jan-2014					1									0
+	23-Jan-2014	13-Jan-2014	19-Jan-2014	14-Jan-2014					1									0
+	23-Jan-2014	13-Jan-2014	19-Jan-2014	15-Jan-2014					1									0
+	23-Jan-2014	13-Jan-2014	19-Jan-2014	16-Jan-2014					1									0
+	23-Jan-2014	13-Jan-2014	19-Jan-2014	17-Jan-2014					0									0
+	23-Jan-2014	13-Jan-2014	19-Jan-2014	18-Jan-2014					0									0
+	23-Jan-2014	13-Jan-2014	19-Jan-2014	19-Jan-2014					0									0
+	23-Jan-2014	20-Jan-2014	26-Jan-2014	20-Jan-2014					0									0
+	23-Jan-2014	20-Jan-2014	26-Jan-2014	21-Jan-2014					0									0
+	23-Jan-2014	20-Jan-2014	26-Jan-2014	22-Jan-2014					0									0
+	23-Jan-2014	20-Jan-2014	26-Jan-2014	23-Jan-2014					0									0
+
+	
+	The table has the required fields to perform an evaluation on each line
+
+
+	Please add additional flags per time period as required
+	
+*/
+
+
+Calendar_Previous_Periods:
+load *	
+	// All Dates effectivly removing any date selections made by the user
+	,1																																						as %Flag_AllDates
+
+	// Previous day
+	,If(Possible_KeyDate=%KeyDate-1,1,0)																													as %Flag_PreviousDay_M01
+	,If(Possible_KeyDate=%KeyDate-2,1,0)																													as %Flag_PreviousDay_M02
+	,If(Possible_KeyDate=%KeyDate-3,1,0)																													as %Flag_PreviousDay_M03
+	,If(Possible_KeyDate=%KeyDate-4,1,0)																													as %Flag_PreviousDay_M04
+	,If(Possible_KeyDate=%KeyDate-5,1,0)																													as %Flag_PreviousDay_M05
+	,If(Possible_KeyDate=%KeyDate-6,1,0)																													as %Flag_PreviousDay_M06
+	,If(Possible_KeyDate=%KeyDate-7,1,0)																													as %Flag_PreviousDay_M07	
+
+	// Previous Business day
+	,If(Possible_KeyDate=BusinessDateM1,1,0)																												as %Flag_PreviousBusinessDay_M01
+	,If(Possible_KeyDate=BusinessDateM2,1,0)																												as %Flag_PreviousBusinessDay_M02
+	,If(Possible_KeyDate=BusinessDateM3,1,0)																												as %Flag_PreviousBusinessDay_M03
+	,If(Possible_KeyDate=BusinessDateM4,1,0)																												as %Flag_PreviousBusinessDay_M04
+	,If(Possible_KeyDate=BusinessDateM5,1,0)																												as %Flag_PreviousBusinessDay_M05
+	,If(Possible_KeyDate=BusinessDateM6,1,0)																												as %Flag_PreviousBusinessDay_M06		
+
+
+	// Previous Day Inclusive. If Date 21-Jan-2014 is selected %Flag_PreviousDayInclusive_M03 will return four days of data 18-Jan-2014 to 21-Jan-2014. 
+	,If(Possible_KeyDate<=%KeyDate 					and 	Possible_KeyDate>=%KeyDate-1,1,0)																as %Flag_PreviousDayInclusive_M01
+	,If(Possible_KeyDate<=%KeyDate 					and 	Possible_KeyDate>=%KeyDate-2,1,0)																as %Flag_PreviousDayInclusive_M02
+	,If(Possible_KeyDate<=%KeyDate 					and 	Possible_KeyDate>=%KeyDate-3,1,0)																as %Flag_PreviousDayInclusive_M03
+	,If(Possible_KeyDate<=%KeyDate 					and 	Possible_KeyDate>=%KeyDate-4,1,0)																as %Flag_PreviousDayInclusive_M04
+	,If(Possible_KeyDate<=%KeyDate 					and 	Possible_KeyDate>=%KeyDate-5,1,0)																as %Flag_PreviousDayInclusive_M05
+	,If(Possible_KeyDate<=%KeyDate 					and 	Possible_KeyDate>=%KeyDate-6,1,0)																as %Flag_PreviousDayInclusive_M06
+	,If(Possible_KeyDate<=%KeyDate 					and 	Possible_KeyDate>=%KeyDate-7,1,0)																as %Flag_PreviousDayInclusive_M07
+
+
+	// Previous Business day inclusive (skipping any none Business days). 
+	//If Date 6-Jan-2014 (Monday) is selected %Flag_PreviousBusinessDayInclusive_M1 will return two dates; 3-Jan-2014 (Friday) and 6-Jan-2014 (Monday)
+	,If(Possible_KeyDate<=[Last Business Day]		and 	Possible_KeyDate>=BusinessDateM1				and %Flag_BusinessDayInclusive=1,1,0)			as %Flag_PreviousBusinessDayInclusive_M01
+	,If(Possible_KeyDate<=[Last Business Day]		and 	Possible_KeyDate>=BusinessDateM2				and %Flag_BusinessDayInclusive=1,1,0)			as %Flag_PreviousBusinessDayInclusive_M02
+	,If(Possible_KeyDate<=[Last Business Day]		and 	Possible_KeyDate>=BusinessDateM3				and %Flag_BusinessDayInclusive=1,1,0)			as %Flag_PreviousBusinessDayInclusive_M03	
+	,If(Possible_KeyDate<=[Last Business Day]		and 	Possible_KeyDate>=BusinessDateM4				and %Flag_BusinessDayInclusive=1,1,0)			as %Flag_PreviousBusinessDayInclusive_M04
+	,If(Possible_KeyDate<=[Last Business Day]		and 	Possible_KeyDate>=BusinessDateM5				and %Flag_BusinessDayInclusive=1,1,0)			as %Flag_PreviousBusinessDayInclusive_M05
+	,If(Possible_KeyDate<=[Last Business Day]		and 	Possible_KeyDate>=BusinessDateM6				and %Flag_BusinessDayInclusive=1,1,0)			as %Flag_PreviousBusinessDayInclusive_M06
+
+
+	// Previous week. This flags all of the previous weeks key dates Monday - Sunday 
+	,if([Week Start]<=%KeyDate-(7*1) 				and 	[Week End]>=%KeyDate-(7*1),1,0)																	as %Flag_PreviousWeek_M01	
+	,if([Week Start]<=%KeyDate-(7*2) 				and 	[Week End]>=%KeyDate-(7*2),1,0)																	as %Flag_PreviousWeek_M02	
+	,if([Week Start]<=%KeyDate-(7*3) 				and 	[Week End]>=%KeyDate-(7*3),1,0)																	as %Flag_PreviousWeek_M03	
+	,if([Week Start]<=%KeyDate-(7*4) 				and 	[Week End]>=%KeyDate-(7*4),1,0)																	as %Flag_PreviousWeek_M04	
+	,if([Week Start]<=%KeyDate-(7*52) 				and 	[Week End]>=%KeyDate-(7*52),1,0)																as %Flag_PreviousWeek_M52
+	,if([Week Start]<=%KeyDate-(7*53) 				and 	[Week End]>=%KeyDate-(7*53),1,0)																as %Flag_PreviousWeek_M53		
+
+
+	// Previous Week to Date. This flags last week up to compartative date. ie If Date is Wednesday this will flag last week Mon-Wed.
+	// The first two conditions are the same as previous week (above) with the added condition to ensure the full week isn't taken when you're half way through a week
+	,if([Week Start]<=%KeyDate-(7*1) 				and 	[Week End]>=%KeyDate-(7*1)				and 	Possible_KeyDate<=%KeyDate-(7*1),1,0)			as %Flag_PreviousWeekComparative_M01
+	,if([Week Start]<=%KeyDate-(7*2) 				and 	[Week End]>=%KeyDate-(7*2)				and 	Possible_KeyDate<=%KeyDate-(7*2),1,0)			as %Flag_PreviousWeekComparative_M02
+	,if([Week Start]<=%KeyDate-(7*3) 				and 	[Week End]>=%KeyDate-(7*3)				and 	Possible_KeyDate<=%KeyDate-(7*3),1,0)			as %Flag_PreviousWeekComparative_M03
+	,if([Week Start]<=%KeyDate-(7*4) 				and 	[Week End]>=%KeyDate-(7*4)				and 	Possible_KeyDate<=%KeyDate-(7*4),1,0)			as %Flag_PreviousWeekComparative_M04
+
+
+	// Last week(s). This Flags the last weeks (7 Days) date up to the Date Selected. If Date 6-Jan-2014 is selected
+	,If(Possible_KeyDate>=%KeyDate-(7*1-1)			and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastWeek_M01	
+	,If(Possible_KeyDate>=%KeyDate-(7*2-1)			and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastWeek_M02	
+	,If(Possible_KeyDate>=%KeyDate-(7*3-1)			and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastWeek_M03	
+	,If(Possible_KeyDate>=%KeyDate-(7*4-1)			and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastWeek_M04	
+	
+
+
+	// Previous Month.	I.E Date=6th Jan 2014 would select KeyDate's 1st Dec - 31st Dec 2013 
+	,if(AddMonths(%KeyDate,-1)>=[Month Start] 		and 	AddMonths(%KeyDate,-1)<=[Month End],1,0)														as %Flag_PreviousMonth_M01
+	,if(AddMonths(%KeyDate,-2)>=[Month Start] 		and 	AddMonths(%KeyDate,-2)<=[Month End],1,0)														as %Flag_PreviousMonth_M02
+	,if(AddMonths(%KeyDate,-3)>=[Month Start] 		and 	AddMonths(%KeyDate,-3)<=[Month End],1,0)														as %Flag_PreviousMonth_M03
+	,if(AddMonths(%KeyDate,-4)>=[Month Start] 		and 	AddMonths(%KeyDate,-4)<=[Month End],1,0)														as %Flag_PreviousMonth_M04
+	,if(AddMonths(%KeyDate,-5)>=[Month Start] 		and 	AddMonths(%KeyDate,-5)<=[Month End],1,0)														as %Flag_PreviousMonth_M05
+	,if(AddMonths(%KeyDate,-6)>=[Month Start] 		and 	AddMonths(%KeyDate,-6)<=[Month End],1,0)														as %Flag_PreviousMonth_M06
+	,if(AddMonths(%KeyDate,-12)>=[Month Start] 		and 	AddMonths(%KeyDate,-12)<=[Month End],1,0)														as %Flag_PreviousMonth_M12
+
+
+
+	// Previous Month to Date. This flags last month up to compartative date. ie If Date is the 18th this will flag last month 1st-18th
+	// The first two conditions are the same as previous month (above) with the added condition to ensure the full week isn't taken when you're half way through a month
+
+	,if(AddMonths(%KeyDate,-1)>=[Month Start] 		and 	AddMonths(%KeyDate,-1)<=[Month End]		and 	Possible_KeyDate<=AddMonths(%KeyDate,-1),1,0)	as %Flag_PreviousMonthComparative_M01
+	,if(AddMonths(%KeyDate,-2)>=[Month Start] 		and 	AddMonths(%KeyDate,-2)<=[Month End]		and 	Possible_KeyDate<=AddMonths(%KeyDate,-2),1,0)	as %Flag_PreviousMonthComparative_M02
+	,if(AddMonths(%KeyDate,-3)>=[Month Start] 		and 	AddMonths(%KeyDate,-3)<=[Month End]		and 	Possible_KeyDate<=AddMonths(%KeyDate,-3),1,0)	as %Flag_PreviousMonthComparative_M03
+	,if(AddMonths(%KeyDate,-4)>=[Month Start] 		and 	AddMonths(%KeyDate,-4)<=[Month End]		and 	Possible_KeyDate<=AddMonths(%KeyDate,-4),1,0)	as %Flag_PreviousMonthComparative_M04
+	,if(AddMonths(%KeyDate,-5)>=[Month Start] 		and 	AddMonths(%KeyDate,-5)<=[Month End]		and 	Possible_KeyDate<=AddMonths(%KeyDate,-5),1,0)	as %Flag_PreviousMonthComparative_M05
+	,if(AddMonths(%KeyDate,-6)>=[Month Start] 		and 	AddMonths(%KeyDate,-6)<=[Month End]		and 	Possible_KeyDate<=AddMonths(%KeyDate,-6),1,0)	as %Flag_PreviousMonthComparative_M06	
+	,if(AddMonths(%KeyDate,-7)>=[Month Start] 		and 	AddMonths(%KeyDate,-7)<=[Month End]		and 	Possible_KeyDate<=AddMonths(%KeyDate,-7),1,0)	as %Flag_PreviousMonthComparative_M07
+	,if(AddMonths(%KeyDate,-8)>=[Month Start] 		and 	AddMonths(%KeyDate,-8)<=[Month End]		and 	Possible_KeyDate<=AddMonths(%KeyDate,-8),1,0)	as %Flag_PreviousMonthComparative_M08
+	,if(AddMonths(%KeyDate,-9)>=[Month Start] 		and 	AddMonths(%KeyDate,-9)<=[Month End]		and 	Possible_KeyDate<=AddMonths(%KeyDate,-9),1,0)	as %Flag_PreviousMonthComparative_M09
+	,if(AddMonths(%KeyDate,-10)>=[Month Start] 		and 	AddMonths(%KeyDate,-10)<=[Month End]	and 	Possible_KeyDate<=AddMonths(%KeyDate,-10),1,0)	as %Flag_PreviousMonthComparative_M10
+	,if(AddMonths(%KeyDate,-11)>=[Month Start] 		and 	AddMonths(%KeyDate,-11)<=[Month End]	and 	Possible_KeyDate<=AddMonths(%KeyDate,-11),1,0)	as %Flag_PreviousMonthComparative_M11		
+	,if(AddMonths(%KeyDate,-12)>=[Month Start] 		and 	AddMonths(%KeyDate,-12)<=[Month End]	and 	Possible_KeyDate<=AddMonths(%KeyDate,-12),1,0)	as %Flag_PreviousMonthComparative_M12
+	
+
+	// Last Month. I.E Date=6th Jan 2014 would select KeyDate's 6th Dec 2013 to 6th Jan 2014  	
+	,if(Possible_KeyDate>=AddMonths(%KeyDate,-1)	and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastMonth_M01
+	,if(Possible_KeyDate>=AddMonths(%KeyDate,-2)	and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastMonth_M02
+	,if(Possible_KeyDate>=AddMonths(%KeyDate,-3)	and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastMonth_M03
+	,if(Possible_KeyDate>=AddMonths(%KeyDate,-4)	and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastMonth_M04
+	,if(Possible_KeyDate>=AddMonths(%KeyDate,-5)	and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastMonth_M05
+	,if(Possible_KeyDate>=AddMonths(%KeyDate,-6)	and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastMonth_M06
+	,if(Possible_KeyDate>=AddMonths(%KeyDate,-7)	and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastMonth_M07
+	,if(Possible_KeyDate>=AddMonths(%KeyDate,-8)	and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastMonth_M08
+	,if(Possible_KeyDate>=AddMonths(%KeyDate,-9)	and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastMonth_M09
+	,if(Possible_KeyDate>=AddMonths(%KeyDate,-10)	and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastMonth_M10
+	,if(Possible_KeyDate>=AddMonths(%KeyDate,-11)	and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastMonth_M11
+	,if(Possible_KeyDate>=AddMonths(%KeyDate,-12)	and 	Possible_KeyDate<=%KeyDate,1,0)																	as %Flag_LastMonth_M12
+
+
+	// Previous Quarter.	
+	,if(AddMonths(%KeyDate,-3)>=[Quarter Start] 	and 	AddMonths(%KeyDate,-3)<=[Quarter End],1,0)														as %Flag_PreviousQuarter_M01
+	,if(AddMonths(%KeyDate,-6)>=[Quarter Start] 	and 	AddMonths(%KeyDate,-6)<=[Quarter End],1,0)														as %Flag_PreviousQuarter_M02
+	,if(AddMonths(%KeyDate,-9)>=[Quarter Start] 	and 	AddMonths(%KeyDate,-9)<=[Quarter End],1,0)														as %Flag_PreviousQuarter_M03
+	,if(AddMonths(%KeyDate,-12)>=[Quarter Start] 	and 	AddMonths(%KeyDate,-12)<=[Quarter End],1,0)														as %Flag_PreviousQuarter_M04
+
+
+	// Previous Quarter to Date. This flags last month up to compartative dates.
+	,if(AddMonths(%KeyDate,-3)>=[Quarter Start] 	and 	AddMonths(%KeyDate,-3)<=[Quarter End]	and 	Possible_KeyDate<=AddMonths(%KeyDate,-3),1,0)	as %Flag_PreviousQuarterComparative_M01
+	,if(AddMonths(%KeyDate,-6)>=[Quarter Start] 	and 	AddMonths(%KeyDate,-6)<=[Quarter End]	and 	Possible_KeyDate<=AddMonths(%KeyDate,-6),1,0)	as %Flag_PreviousQuarterComparative_M02
+	,if(AddMonths(%KeyDate,-9)>=[Quarter Start] 	and 	AddMonths(%KeyDate,-9)<=[Quarter End]	and 	Possible_KeyDate<=AddMonths(%KeyDate,-9),1,0)	as %Flag_PreviousQuarterComparative_M03
+	,if(AddMonths(%KeyDate,-12)>=[Quarter Start] 	and 	AddMonths(%KeyDate,-12)<=[Quarter End]	and 	Possible_KeyDate<=AddMonths(%KeyDate,-12),1,0)	as %Flag_PreviousQuarterComparative_M04
+
+
+	// Previous Year.
+	,If(Year(Possible_KeyDate)=year(%KeyDate)-1,1,0)																										as %Flag_PreviousYear_M01
+	,If(Year(Possible_KeyDate)=year(%KeyDate)-2,1,0)																										as %Flag_PreviousYear_M02	
+
+
+	// V1.1 Previous Year Inclusive. 	Ie.: 	If the Date selected is 25th December 2015 and _M02 is selected then you will return dates from 1-Jan-2013 to 31-Dec-2015
+	,If(Year(Possible_KeyDate)>=year(%KeyDate)-1 	and 	Year(Possible_KeyDate)<=year(%KeyDate),1,0)														as %Flag_PreviousYearInclusive_M01
+	,If(Year(Possible_KeyDate)>=year(%KeyDate)-2 	and 	Year(Possible_KeyDate)<=year(%KeyDate),1,0)														as %Flag_PreviousYearInclusive_M02	
+
+	
+
+	// Previous Year to Date. This flags last month up to compartative dates. Ie: If the Date is 16th April 2014 this will flag from 1st Jan 2013 to 16th April 2013
+	,if(AddMonths(%KeyDate,-12)>=[Year Start] 		and 	AddMonths(%KeyDate,-12)<=[Year End]		and 	Possible_KeyDate<=AddMonths(%KeyDate,-12),1,0)	as %Flag_PreviousYearComparative_M01
+	,if(AddMonths(%KeyDate,-24)>=[Year Start] 		and 	AddMonths(%KeyDate,-24)<=[Year End]		and 	Possible_KeyDate<=AddMonths(%KeyDate,-24),1,0)	as %Flag_PreviousYearComparative_M02	
+
+
+	// V1.1 Previous Special Dates (Group)
+	,if([Holiday Group]=%HolidayGroup_Possible 		and 	%HolidayGroup_No-1=%HolidayGroup_No_Possible, 1 ,0)																										as	%Flag_PreviousHolidayGroup_M1
+	,if([Holiday Group]=%HolidayGroup_Possible 		and 	%HolidayGroup_No-2=%HolidayGroup_No_Possible, 1 ,0)																										as	%Flag_PreviousHolidayGroup_M2
+	,if([Holiday Group]=%HolidayGroup_Possible 		and 	%HolidayGroup_No-3=%HolidayGroup_No_Possible, 1 ,0)																										as	%Flag_PreviousHolidayGroup_M3
+	,if([Holiday Group]=%HolidayGroup_Possible 		and 	%HolidayGroup_No-4=%HolidayGroup_No_Possible, 1 ,0)																										as	%Flag_PreviousHolidayGroup_M4
+	,if([Holiday Group]=%HolidayGroup_Possible 		and 	%HolidayGroup_No-5=%HolidayGroup_No_Possible, 1 ,0)																										as	%Flag_PreviousHolidayGroup_M5
+
+	// V1.1 Previous Special Dates (Group) Inclusive
+	,if([Holiday Group]=%HolidayGroup_Possible 		and 	%HolidayGroup_No-0 <= %HolidayGroup_No_Possible		and %HolidayGroup_No_Possible<=%HolidayGroup_No		, 1 ,0)											as	%Flag_PreviousHolidayGroupInclusive_M0
+	,if([Holiday Group]=%HolidayGroup_Possible 		and 	%HolidayGroup_No-1 <= %HolidayGroup_No_Possible		and %HolidayGroup_No_Possible<=%HolidayGroup_No		, 1 ,0)											as	%Flag_PreviousHolidayGroupInclusive_M1
+	,if([Holiday Group]=%HolidayGroup_Possible 		and 	%HolidayGroup_No-2 <= %HolidayGroup_No_Possible		and %HolidayGroup_No_Possible<=%HolidayGroup_No		, 1 ,0)											as	%Flag_PreviousHolidayGroupInclusive_M2
+	,if([Holiday Group]=%HolidayGroup_Possible 		and 	%HolidayGroup_No-3 <= %HolidayGroup_No_Possible		and %HolidayGroup_No_Possible<=%HolidayGroup_No		, 1 ,0)											as	%Flag_PreviousHolidayGroupInclusive_M3
+	,if([Holiday Group]=%HolidayGroup_Possible 		and 	%HolidayGroup_No-4 <= %HolidayGroup_No_Possible		and %HolidayGroup_No_Possible<=%HolidayGroup_No		, 1 ,0)											as	%Flag_PreviousHolidayGroupInclusive_M4
+	,if([Holiday Group]=%HolidayGroup_Possible 		and 	%HolidayGroup_No-5 <= %HolidayGroup_No_Possible		and %HolidayGroup_No_Possible<=%HolidayGroup_No		, 1 ,0)											as	%Flag_PreviousHolidayGroupInclusive_M5
+	
+	
+	// V1.1 Previous Special Dates (Label)
+	,if([Holiday Name]=%HolidayLabel_Possible 		and 	%HolidayLabel_No-1=%HolidayLabel_No_Possible, 1 ,0)																										as	%Flag_PreviousHolidayLabel_M1	
+	,if([Holiday Name]=%HolidayLabel_Possible 		and 	%HolidayLabel_No-2=%HolidayLabel_No_Possible, 1 ,0)																										as	%Flag_PreviousHolidayLabel_M2		
+	,if([Holiday Name]=%HolidayLabel_Possible 		and 	%HolidayLabel_No-3=%HolidayLabel_No_Possible, 1 ,0)																										as	%Flag_PreviousHolidayLabel_M3	
+	,if([Holiday Name]=%HolidayLabel_Possible 		and 	%HolidayLabel_No-4=%HolidayLabel_No_Possible, 1 ,0)																										as	%Flag_PreviousHolidayLabel_M4	
+	,if([Holiday Name]=%HolidayLabel_Possible 		and 	%HolidayLabel_No-5=%HolidayLabel_No_Possible, 1 ,0)																										as	%Flag_PreviousHolidayLabel_M5	
+
+	// V1.1 Previous Special Dates (Label) Inclusive
+	,if([Holiday Name]=%HolidayLabel_Possible 		and 	%HolidayLabel_No-0 <= %HolidayLabel_No_Possible		and  	%HolidayLabel_No_Possible<=%HolidayLabel_No	, 1 ,0)											as	%Flag_PreviousHolidayLabelInclusive_M0
+	,if([Holiday Name]=%HolidayLabel_Possible 		and 	%HolidayLabel_No-1 <= %HolidayLabel_No_Possible		and  	%HolidayLabel_No_Possible<=%HolidayLabel_No	, 1 ,0)											as	%Flag_PreviousHolidayLabelInclusive_M1
+	,if([Holiday Name]=%HolidayLabel_Possible 		and 	%HolidayLabel_No-2 <= %HolidayLabel_No_Possible		and  	%HolidayLabel_No_Possible<=%HolidayLabel_No	, 1 ,0)											as	%Flag_PreviousHolidayLabelInclusive_M2
+	,if([Holiday Name]=%HolidayLabel_Possible 		and 	%HolidayLabel_No-3 <= %HolidayLabel_No_Possible		and  	%HolidayLabel_No_Possible<=%HolidayLabel_No	, 1 ,0)											as	%Flag_PreviousHolidayLabelInclusive_M3
+	,if([Holiday Name]=%HolidayLabel_Possible 		and 	%HolidayLabel_No-4 <= %HolidayLabel_No_Possible		and  	%HolidayLabel_No_Possible<=%HolidayLabel_No	, 1 ,0)											as	%Flag_PreviousHolidayLabelInclusive_M4
+	,if([Holiday Name]=%HolidayLabel_Possible 		and 	%HolidayLabel_No-5 <= %HolidayLabel_No_Possible		and  	%HolidayLabel_No_Possible<=%HolidayLabel_No	, 1 ,0)											as	%Flag_PreviousHolidayLabelInclusive_M5
+	
+	
+
+	
+	
+
+		
+		
+		// and  Possible_KeyDate<=%KeyDate
+Resident Calendar_PIT;
+
+Drop Table Calendar_PIT;
+
+
+///$tab FROM AND TO DATES
+// V1.2 - If these optional data tables are used you are able to select a From and To date with the possibles dates between associated
+
+FromDate:
+Load Distinct
+	Date(%KeyDate,'DD-MMM-YYYY') 				AS	Date
+	,Date(Possible_KeyDate,'DD-MMM-YYYY') 		AS	From_Date
+Resident Calendar_Previous_Periods
+Where Possible_KeyDate<=%KeyDate;
+
+ToDate:
+Load Distinct
+	Date(%KeyDate,'DD-MMM-YYYY') 				AS	Date 
+	,Date(Possible_KeyDate,'DD-MMM-YYYY') 		AS	To_Date
+Resident Calendar_Previous_Periods
+Where Possible_KeyDate>=%KeyDate;
+///$tab CLEAN UP
+
+// Here we remove the BusinessDateM# fields created in PREVIOUS BUSINESS DATES tab
+For vLoopValue =1 to 20
+	drop Field BusinessDateM$(vLoopValue);
+Next vLoopValue
+
+
+// Here we list the %FLAG_ fields into a variable to be used within a RangeMax function 
+For myCurser = 1 to NoOfFields('Calendar_Previous_Periods')
+       
+   	LET v_FieldName = FieldName(myCurser,'Calendar_Previous_Periods');    
+	
+	// Check the feild is required in the RangeMax Calculation, some fields are discounted from this check
+	IF Upper( Left('$(v_FieldName)', 6) ) = '%FLAG_' and v_FieldName <> '%Flag_BusinessDay' and v_FieldName <> '%Flag_Holiday' and v_FieldName <> '%Flag_Weekday' and v_FieldName <> '%Flag_Weekend' and v_FieldName <> '%Flag_BusinessDayInclusive' Then
+		LET v_RangeMaxString = v_RangeMaxString & ', ' & v_FieldName;
+	ENDIF	
+
+NEXT myCurser 
+
+LET v_RangeMaxString = mid('$(v_RangeMaxString)',3,len(v_RangeMaxString)); // Trim the leading ', '
+
+// Reloads the data only when at least one of the %FLAG_'s are 1
+Calendar:
+NoConcatenate Load *	
+Resident Calendar_Previous_Periods
+where 
+	RangeMax($(v_RangeMaxString)) = 1
+;
+
+
+// Drop and rename fields
+DROP Field %KeyDate;
+RENAME Field Possible_KeyDate to %KeyDate;	// This field will be used as the link to the FACT tables
+
+Drop Fields %HolidayGroup_Possible, %HolidayLabel_Possible,%HolidayGroup_No_Possible,%HolidayLabel_No_Possible,[Last Business Day],%Day_Count_Since_Last_BusinessDay;
+
+
+// Clean up the variables
+LET myCurser 		= ;
+LET v_FieldName 	= ;	
+LET v_RangeMaxString = ;
+LET vCalendar_Start_Date= ;
+LET vCalendar_End_Date= ;
+LET vCalendar_Number_Days_Between_Dates= ;
+LET vLoopValue= ;
+
+
+// Drop the tables no longer required	
+Drop Table Calendar_Previous_Periods,Original_Calendar;
+
+
+
+///$tab STORE
+// Here you can store your Master_Calendar table as a QVD file
+//STORE Calendar into [Data\Transform\Calendar.qvd];
+
+///$tab FACT DATA
+
+// Here is some example FACT Data to demonstrate how the master calendar works in dashboards
+
+
+FACT:
+Load * Inline [
+%KeyDate,Country,Product,Sales
+40909,Denmark,Shoes,95
+40910,Norway,Jumpers,127
+40911,Germany,Shirts,73
+40912,France,Shirts,111
+40913,Spain,Jumpers,84
+40914,UK,Jeans,138
+40915,UK,Clogs,58
+40916,Norway,Socks,70
+40917,Norway,Shirts,57
+40918,France,Shirts,53
+40919,France,Shorts,89
+40920,Denmark,Jumpers,77
+40921,Denmark,Shirts,99
+40922,Germany,Jeans,104
+40923,Germany,Jumpers,81
+40924,USA,Socks,75
+40925,Germany,Socks,93
+40926,France,Shoes,121
+40927,Spain,Shorts,64
+40928,Norway,Clogs,82
+40929,Denmark,Jumpers,135
+40930,UK,Jeans,135
+40931,Spain,Jeans,86
+40932,Spain,Shirts,125
+40933,France,Shirts,127
+40934,Germany,Jumpers,111
+40935,Spain,Jumpers,68
+40936,Denmark,Shoes,80
+40937,France,Shirts,105
+40938,France,Shorts,141
+40939,Norway,Shoes,70
+40940,Norway,Jeans,83
+40941,USA,Socks,97
+40942,Germany,Jeans,75
+40943,Denmark,Jumpers,111
+40944,Norway,Shirts,128
+40945,UK,Shorts,122
+40946,Germany,Clogs,137
+40947,UK,Jumpers,58
+40948,USA,Shirts,101
+40949,France,Jumpers,84
+40950,Denmark,Shoes,145
+40951,USA,Shoes,112
+40952,France,Socks,98
+40953,Spain,Clogs,93
+40954,UK,Jeans,128
+40955,Spain,Clogs,52
+40956,Spain,Jeans,144
+40957,Germany,Socks,57
+40958,Spain,Jeans,51
+40959,UK,Socks,123
+40960,Germany,Socks,90
+40961,USA,Clogs,137
+40962,Spain,Clogs,98
+40963,France,Jumpers,128
+40964,Germany,Jumpers,88
+40965,Denmark,Jumpers,136
+40966,UK,Shirts,105
+40967,Spain,Shirts,121
+40968,USA,Clogs,55
+40969,Norway,Jumpers,92
+40970,Norway,Shirts,122
+40971,UK,Jeans,98
+40972,UK,Shirts,71
+40973,France,Shirts,110
+40974,Norway,Clogs,148
+40975,USA,Shoes,77
+40976,Germany,Jumpers,68
+40977,Spain,Shorts,119
+40978,France,Jeans,55
+40979,USA,Shorts,117
+40980,USA,Shoes,68
+40981,Germany,Jumpers,138
+40982,USA,Shorts,133
+40983,UK,Shorts,83
+40984,UK,Jumpers,128
+40985,Germany,Socks,118
+40986,USA,Jeans,96
+40987,Germany,Jeans,79
+40988,Norway,Socks,142
+40989,Spain,Shorts,135
+40990,Denmark,Shoes,70
+40991,Spain,Jeans,69
+40992,USA,Jeans,120
+40993,Spain,Shorts,133
+40994,Denmark,Jumpers,70
+40995,Norway,Shorts,112
+40996,UK,Shirts,130
+40997,Norway,Socks,81
+40998,Denmark,Shirts,51
+40999,Norway,Jeans,100
+41000,Denmark,Jumpers,90
+41001,Norway,Clogs,90
+41002,Denmark,Jeans,132
+41003,Norway,Shirts,125
+41004,Germany,Socks,115
+41005,Norway,Socks,69
+41006,Denmark,Socks,130
+41007,Spain,Shoes,111
+41008,Germany,Socks,110
+41009,France,Shorts,150
+41010,Denmark,Clogs,98
+41011,USA,Jeans,123
+41012,Germany,Socks,54
+41013,UK,Socks,148
+41014,Denmark,Shirts,112
+41015,Spain,Shirts,124
+41016,Germany,Shoes,60
+41017,Denmark,Jeans,128
+41018,Denmark,Jumpers,60
+41019,UK,Clogs,59
+41020,Denmark,Jumpers,145
+41021,France,Jumpers,119
+41022,Germany,Jumpers,118
+41023,USA,Jumpers,118
+41024,UK,Shirts,140
+41025,Norway,Jumpers,141
+41026,USA,Shorts,73
+41027,Denmark,Shoes,139
+41028,Germany,Jumpers,74
+41029,France,Shoes,107
+41030,Denmark,Shoes,96
+41031,Spain,Shorts,127
+41032,Germany,Shirts,82
+41033,UK,Socks,96
+41034,Denmark,Shorts,150
+41035,Norway,Jumpers,120
+41036,Spain,Clogs,64
+41037,Norway,Jumpers,96
+41038,France,Socks,93
+41039,USA,Shorts,53
+41040,Denmark,Shorts,96
+41041,Denmark,Shirts,144
+41042,Denmark,Shoes,50
+41043,France,Jumpers,84
+41044,Germany,Jeans,86
+41045,Denmark,Shirts,100
+41046,Spain,Clogs,102
+41047,USA,Clogs,121
+41048,Norway,Jeans,124
+41049,UK,Jumpers,142
+41050,Norway,Shorts,115
+41051,Denmark,Shoes,140
+41052,Germany,Jeans,99
+41053,Norway,Jeans,85
+41054,UK,Clogs,76
+41055,France,Jeans,122
+41056,Denmark,Clogs,66
+41057,Germany,Shorts,111
+41058,Germany,Clogs,50
+41059,UK,Socks,150
+41060,Norway,Shorts,62
+41061,Spain,Jumpers,120
+41062,Denmark,Shirts,115
+41063,Germany,Jumpers,103
+41064,USA,Socks,53
+41065,UK,Shirts,93
+41066,Denmark,Clogs,121
+41067,Spain,Shoes,106
+41068,UK,Socks,87
+41069,Norway,Jumpers,81
+41070,UK,Clogs,115
+41071,France,Clogs,127
+41072,Germany,Clogs,88
+41073,Spain,Shirts,103
+41074,UK,Jeans,129
+41075,Germany,Shirts,148
+41076,Germany,Shirts,128
+41077,USA,Clogs,139
+41078,Denmark,Jeans,72
+41079,USA,Clogs,121
+41080,Germany,Jeans,125
+41081,Norway,Socks,82
+41082,UK,Jeans,70
+41083,France,Clogs,114
+41084,UK,Clogs,135
+41085,France,Shoes,140
+41086,Norway,Socks,143
+41087,Denmark,Clogs,144
+41088,Denmark,Shorts,91
+41089,Denmark,Clogs,54
+41090,Spain,Jumpers,56
+41091,Germany,Socks,74
+41092,France,Clogs,94
+41093,Spain,Socks,126
+41094,USA,Shoes,102
+41095,Norway,Shirts,120
+41096,Spain,Shoes,93
+41097,Germany,Jumpers,116
+41098,USA,Clogs,114
+41099,Spain,Shorts,58
+41100,USA,Socks,97
+41101,Germany,Shoes,77
+41102,Germany,Jumpers,105
+41103,Norway,Shirts,109
+41104,Germany,Clogs,116
+41105,Norway,Jeans,95
+41106,UK,Socks,72
+41107,USA,Socks,124
+41108,UK,Jumpers,149
+41109,Norway,Jumpers,99
+41110,UK,Clogs,148
+41111,USA,Clogs,144
+41112,UK,Shorts,121
+41113,Norway,Shorts,85
+41114,Norway,Shoes,105
+41115,Spain,Socks,94
+41116,Denmark,Jumpers,141
+41117,Norway,Socks,53
+41118,Spain,Shirts,129
+41119,Germany,Shirts,136
+41120,Spain,Shoes,109
+41121,UK,Shirts,50
+41122,Germany,Socks,76
+41123,Denmark,Shirts,79
+41124,UK,Shirts,65
+41125,Germany,Jumpers,115
+41126,Denmark,Clogs,68
+41127,Norway,Shirts,148
+41128,Denmark,Shirts,150
+41129,USA,Shirts,107
+41130,Germany,Jeans,78
+41131,UK,Shorts,61
+41132,USA,Jumpers,98
+41133,UK,Clogs,148
+41134,France,Jeans,77
+41135,France,Shirts,141
+41136,Denmark,Shirts,90
+41137,Spain,Jumpers,102
+41138,Denmark,Jumpers,100
+41139,Spain,Clogs,122
+41140,France,Jumpers,125
+41141,UK,Clogs,147
+41142,UK,Clogs,116
+41143,France,Jumpers,86
+41144,France,Shoes,98
+41145,France,Jeans,102
+41146,France,Clogs,56
+41147,Germany,Jeans,94
+41148,Spain,Shoes,147
+41149,Germany,Jumpers,110
+41150,Denmark,Clogs,98
+41151,Norway,Shoes,55
+41152,France,Jeans,137
+41153,UK,Socks,149
+41154,Spain,Clogs,98
+41155,USA,Shirts,85
+41156,Germany,Shorts,98
+41157,Denmark,Shoes,142
+41158,Germany,Socks,73
+41159,UK,Shoes,131
+41160,Norway,Clogs,128
+41161,Denmark,Socks,93
+41162,Norway,Clogs,107
+41163,Spain,Jeans,51
+41164,Denmark,Jumpers,120
+41165,UK,Jeans,144
+41166,France,Jeans,84
+41167,USA,Shirts,56
+41168,Denmark,Shirts,95
+41169,Denmark,Shoes,98
+41170,France,Shirts,139
+41171,Norway,Shorts,125
+41172,Germany,Shorts,61
+41173,Spain,Jumpers,76
+41174,Norway,Shoes,85
+41175,Germany,Jumpers,73
+41176,France,Socks,127
+41177,Norway,Shirts,61
+41178,Spain,Socks,75
+41179,USA,Socks,59
+41180,USA,Jumpers,113
+41181,UK,Jeans,148
+41182,USA,Shorts,70
+41183,Norway,Socks,76
+41184,Denmark,Socks,134
+41185,France,Socks,87
+41186,France,Jumpers,53
+41187,USA,Jeans,62
+41188,Denmark,Socks,122
+41189,Germany,Shirts,58
+41190,Germany,Jumpers,79
+41191,USA,Shorts,58
+41192,Denmark,Clogs,124
+41193,Denmark,Socks,92
+41194,Germany,Jumpers,92
+41195,Germany,Clogs,52
+41196,France,Clogs,107
+41197,USA,Shirts,135
+41198,Spain,Shoes,65
+41199,Denmark,Jeans,107
+41200,France,Jeans,127
+41201,Spain,Socks,92
+41202,Spain,Jeans,70
+41203,USA,Shirts,111
+41204,Norway,Clogs,116
+41205,Norway,Shirts,145
+41206,UK,Shoes,123
+41207,France,Jumpers,61
+41208,USA,Shorts,123
+41209,USA,Jumpers,122
+41210,Germany,Shorts,132
+41211,Spain,Socks,55
+41212,UK,Shoes,82
+41213,UK,Jumpers,105
+41214,Germany,Shirts,92
+41215,Spain,Jeans,57
+41216,France,Shoes,95
+41217,France,Shorts,52
+41218,Norway,Socks,72
+41219,UK,Clogs,138
+41220,Spain,Jumpers,89
+41221,Spain,Shorts,98
+41222,France,Clogs,73
+41223,Norway,Socks,104
+41224,USA,Shoes,73
+41225,Spain,Socks,103
+41226,Norway,Jeans,84
+41227,Spain,Shorts,111
+41228,Germany,Shorts,122
+41229,Spain,Socks,122
+41230,UK,Jeans,83
+41231,France,Shoes,143
+41232,Denmark,Shoes,144
+41233,Germany,Jumpers,111
+41234,USA,Jumpers,123
+41235,Spain,Jeans,106
+41236,USA,Clogs,133
+41237,Spain,Clogs,70
+41238,Germany,Clogs,88
+41239,USA,Jumpers,66
+41240,UK,Shoes,65
+41241,USA,Jumpers,99
+41242,Spain,Shoes,112
+41243,Denmark,Shoes,52
+41244,Spain,Shoes,113
+41245,Germany,Clogs,80
+41246,Germany,Shorts,126
+41247,Germany,Shoes,109
+41248,UK,Shorts,108
+41249,USA,Socks,85
+41250,Germany,Jeans,146
+41251,UK,Jeans,99
+41252,USA,Clogs,108
+41253,Spain,Jeans,65
+41254,Denmark,Shorts,98
+41255,USA,Socks,138
+41256,UK,Socks,99
+41257,Denmark,Shorts,129
+41258,UK,Shorts,122
+41259,Denmark,Shoes,128
+41260,UK,Jeans,92
+41261,USA,Jumpers,130
+41262,Norway,Socks,125
+41263,France,Clogs,106
+41264,Denmark,Clogs,131
+41265,Denmark,Shoes,62
+41266,Norway,Socks,51
+41267,Denmark,Socks,53
+41268,Denmark,Shorts,149
+41269,USA,Jeans,78
+41270,Denmark,Socks,149
+41271,Denmark,Jumpers,111
+41272,UK,Shorts,115
+41273,Denmark,Shoes,123
+41274,Germany,Socks,115
+41275,Norway,Jeans,117
+41276,Denmark,Clogs,143
+41277,Norway,Socks,68
+41278,UK,Shirts,85
+41279,France,Shorts,54
+41280,Norway,Shorts,53
+41281,UK,Shoes,140
+41282,Denmark,Socks,74
+41283,USA,Shirts,50
+41284,Norway,Shirts,141
+41285,France,Shoes,101
+41286,Denmark,Jeans,66
+41287,USA,Jeans,142
+41288,Denmark,Shoes,140
+41289,Norway,Socks,141
+41290,USA,Shirts,106
+41291,France,Shirts,73
+41292,Norway,Jeans,94
+41293,Norway,Clogs,108
+41294,Germany,Socks,58
+41295,Norway,Clogs,147
+41296,France,Jumpers,68
+41297,Spain,Socks,93
+41298,France,Jeans,126
+41299,Norway,Shorts,96
+41300,Denmark,Jumpers,103
+41301,Germany,Shoes,84
+41302,USA,Jumpers,145
+41303,Germany,Shoes,97
+41304,Germany,Shirts,118
+41305,Norway,Jumpers,70
+41306,Spain,Shoes,79
+41307,Spain,Shorts,58
+41308,Spain,Jumpers,113
+41309,Spain,Jumpers,73
+41310,Norway,Shirts,147
+41311,Spain,Jumpers,96
+41312,Spain,Clogs,85
+41313,Germany,Shirts,104
+41314,Spain,Socks,83
+41315,Denmark,Clogs,131
+41316,France,Socks,96
+41317,Germany,Shirts,96
+41318,UK,Jumpers,138
+41319,Denmark,Jumpers,97
+41320,UK,Jeans,116
+41321,Spain,Jumpers,55
+41322,Norway,Jeans,109
+41323,USA,Socks,73
+41324,USA,Shirts,117
+41325,Norway,Clogs,126
+41326,Spain,Shirts,70
+41327,UK,Jeans,82
+41328,Spain,Shoes,119
+41329,UK,Jumpers,138
+41330,France,Jumpers,134
+41331,UK,Jeans,93
+41332,UK,Shirts,130
+41333,UK,Jeans,132
+41334,France,Jumpers,89
+41335,UK,Jeans,133
+41336,UK,Socks,105
+41337,France,Jeans,127
+41338,Germany,Shirts,121
+41339,Norway,Shoes,91
+41340,France,Shirts,53
+41341,USA,Clogs,66
+41342,Denmark,Socks,73
+41343,UK,Socks,102
+41344,Denmark,Jeans,113
+41345,Spain,Socks,104
+41346,Spain,Shoes,140
+41347,Germany,Jumpers,67
+41348,France,Jeans,129
+41349,Spain,Socks,135
+41350,Denmark,Shorts,82
+41351,France,Shirts,71
+41352,USA,Shorts,71
+41353,Denmark,Shorts,91
+41354,Norway,Shoes,98
+41355,Denmark,Clogs,116
+41356,Denmark,Socks,115
+41357,Denmark,Jumpers,95
+41358,UK,Shirts,122
+41359,Norway,Jeans,141
+41360,UK,Shorts,125
+41361,Spain,Socks,88
+41362,Spain,Shorts,57
+41363,Germany,Shorts,139
+41364,Germany,Shorts,58
+41365,UK,Jeans,134
+41366,France,Jumpers,86
+41367,UK,Jeans,124
+41368,Germany,Shirts,92
+41369,Norway,Shirts,79
+41370,UK,Shorts,136
+41371,USA,Jeans,84
+41372,Spain,Shorts,65
+41373,Germany,Jeans,89
+41374,Spain,Clogs,65
+41375,France,Socks,89
+41376,UK,Shoes,97
+41377,Germany,Shoes,121
+41378,Spain,Shorts,105
+41379,Denmark,Shorts,62
+41380,Norway,Shirts,94
+41381,USA,Shirts,146
+41382,Spain,Clogs,129
+41383,UK,Clogs,78
+41384,UK,Clogs,57
+41385,Spain,Jumpers,103
+41386,France,Jeans,98
+41387,France,Shirts,110
+41388,UK,Socks,95
+41389,Spain,Jeans,132
+41390,UK,Jumpers,103
+41391,Germany,Jumpers,50
+41392,UK,Jeans,119
+41393,France,Socks,76
+41394,USA,Shoes,118
+41395,USA,Clogs,54
+41396,France,Socks,51
+41397,Germany,Jumpers,122
+41398,France,Jeans,92
+41399,UK,Shorts,104
+41400,USA,Socks,57
+41401,Spain,Shirts,104
+41402,Germany,Shirts,54
+41403,Denmark,Clogs,63
+41404,France,Socks,55
+41405,UK,Shirts,104
+41406,Germany,Shirts,81
+41407,UK,Clogs,147
+41408,France,Socks,69
+41409,USA,Socks,86
+41410,Denmark,Shoes,127
+41411,Denmark,Jeans,135
+41412,Norway,Socks,114
+41413,France,Shoes,106
+41414,Norway,Jeans,135
+41415,France,Shorts,148
+41416,France,Clogs,64
+41417,France,Jumpers,92
+41418,Spain,Shoes,113
+41419,Norway,Jeans,61
+41420,France,Socks,71
+41421,USA,Shorts,137
+41422,Norway,Socks,111
+41423,Germany,Shoes,123
+41424,France,Jumpers,62
+41425,Germany,Jumpers,114
+41426,UK,Shirts,58
+41427,Germany,Shoes,143
+41428,Spain,Shorts,55
+41429,Germany,Shorts,111
+41430,Denmark,Jeans,134
+41431,UK,Socks,80
+41432,Germany,Jumpers,57
+41433,Germany,Shoes,106
+41434,Spain,Jeans,135
+41435,France,Jumpers,69
+41436,USA,Shoes,61
+41437,USA,Shoes,124
+41438,Norway,Socks,96
+41439,UK,Socks,59
+41440,Spain,Shoes,63
+41441,Germany,Jeans,136
+41442,France,Socks,103
+41443,Denmark,Shirts,61
+41444,Norway,Jeans,130
+41445,Spain,Clogs,50
+41446,Denmark,Shoes,88
+41447,USA,Shorts,150
+41448,Germany,Shorts,87
+41449,UK,Shoes,51
+41450,Norway,Clogs,130
+41451,UK,Shorts,137
+41452,Spain,Shoes,65
+41453,Denmark,Socks,91
+41454,Denmark,Shoes,138
+41455,Spain,Clogs,94
+41456,Denmark,Clogs,146
+41457,Denmark,Shorts,131
+41458,Spain,Jumpers,59
+41459,France,Jumpers,139
+41460,Spain,Jumpers,75
+41461,Germany,Jeans,139
+41462,UK,Clogs,148
+41463,USA,Jeans,52
+41464,Norway,Clogs,139
+41465,Norway,Shorts,71
+41466,Germany,Socks,79
+41467,Denmark,Socks,96
+41468,France,Jeans,107
+41469,Spain,Jeans,79
+41470,Germany,Shoes,146
+41471,Norway,Shoes,78
+41472,USA,Shoes,74
+41473,France,Jeans,112
+41474,Germany,Jeans,58
+41475,Denmark,Socks,109
+41476,Denmark,Socks,57
+41477,Norway,Socks,93
+41478,UK,Jumpers,71
+41479,UK,Socks,150
+41480,UK,Shoes,102
+41481,Denmark,Socks,58
+41482,Germany,Shoes,57
+41483,France,Shorts,109
+41484,France,Shoes,64
+41485,UK,Clogs,50
+41486,Spain,Socks,69
+41487,UK,Shirts,89
+41488,USA,Jeans,77
+41489,USA,Shoes,132
+41490,Germany,Shorts,57
+41491,France,Clogs,85
+41492,USA,Jeans,101
+41493,Germany,Jumpers,121
+41494,Spain,Jeans,57
+41495,USA,Jumpers,116
+41496,UK,Socks,133
+41497,Norway,Jeans,138
+41498,Germany,Jumpers,120
+41499,Germany,Jumpers,95
+41500,Spain,Shirts,142
+41501,France,Jumpers,120
+41502,USA,Jeans,96
+41503,USA,Jeans,146
+41504,Germany,Jeans,110
+41505,USA,Shorts,74
+41506,UK,Shirts,72
+41507,Germany,Jeans,128
+41508,USA,Socks,59
+41509,Norway,Jeans,102
+41510,Germany,Socks,99
+41511,Germany,Socks,125
+41512,USA,Jumpers,52
+41513,USA,Shoes,131
+41514,Spain,Jeans,110
+41515,Spain,Shoes,72
+41516,Norway,Shirts,91
+41517,USA,Shorts,67
+41518,France,Clogs,95
+41519,France,Clogs,144
+41520,Denmark,Jumpers,135
+41521,UK,Shoes,69
+41522,Norway,Clogs,104
+41523,USA,Jeans,106
+41524,USA,Jumpers,118
+41525,Norway,Socks,70
+41526,UK,Clogs,75
+41527,UK,Clogs,121
+41528,Denmark,Clogs,100
+41529,USA,Shorts,130
+41530,Spain,Shoes,67
+41531,Denmark,Shirts,118
+41532,Denmark,Shirts,126
+41533,UK,Socks,71
+41534,Norway,Shirts,61
+41535,Denmark,Shirts,113
+41536,Denmark,Shoes,82
+41537,UK,Clogs,149
+41538,Denmark,Shoes,148
+41539,Denmark,Shirts,88
+41540,Norway,Shorts,63
+41541,Norway,Jumpers,118
+41542,USA,Jumpers,120
+41543,Spain,Shorts,77
+41544,USA,Shoes,142
+41545,Spain,Shirts,139
+41546,USA,Socks,99
+41547,Denmark,Shirts,119
+41548,UK,Socks,70
+41549,Denmark,Jumpers,134
+41550,Germany,Jumpers,66
+41551,France,Clogs,130
+41552,France,Shorts,67
+41553,Spain,Clogs,94
+41554,Germany,Shoes,75
+41555,Germany,Jeans,72
+41556,Spain,Jumpers,115
+41557,Spain,Socks,59
+41558,Denmark,Shirts,113
+41559,UK,Clogs,81
+41560,France,Shoes,137
+41561,UK,Jeans,111
+41562,France,Socks,120
+41563,UK,Jumpers,66
+41564,USA,Shoes,129
+41565,Denmark,Socks,114
+41566,Spain,Clogs,109
+41567,UK,Jeans,123
+41568,Denmark,Shirts,94
+41569,Norway,Jeans,67
+41570,Denmark,Socks,73
+41571,USA,Shorts,92
+41572,USA,Shoes,107
+41573,Denmark,Shirts,146
+41574,Norway,Jumpers,54
+41575,Spain,Shirts,117
+41576,Germany,Shoes,74
+41577,USA,Jumpers,96
+41578,USA,Shirts,56
+41579,Spain,Jeans,115
+41580,Germany,Socks,61
+41581,Spain,Shirts,142
+41582,Germany,Shirts,101
+41583,Spain,Shorts,67
+41584,Norway,Shoes,95
+41585,Spain,Jumpers,108
+41586,Denmark,Jumpers,102
+41587,Spain,Jeans,70
+41588,France,Socks,141
+41589,Norway,Jumpers,87
+41590,Norway,Shorts,68
+41591,Norway,Socks,54
+41592,Germany,Jeans,142
+41593,Germany,Shirts,119
+41594,Denmark,Shirts,149
+41595,France,Jeans,63
+41596,UK,Socks,113
+41597,USA,Socks,95
+41598,Norway,Shoes,59
+41599,Denmark,Shoes,59
+41600,Spain,Shorts,120
+41601,Norway,Jumpers,143
+41602,Spain,Jeans,72
+41603,Denmark,Shirts,70
+41604,Denmark,Shirts,104
+41605,Norway,Socks,85
+41606,Spain,Shoes,128
+41607,USA,Shoes,51
+41608,Norway,Shoes,85
+41609,Norway,Shirts,124
+41610,Germany,Jeans,95
+41611,Germany,Jeans,56
+41612,Germany,Shirts,88
+41613,UK,Clogs,133
+41614,France,Jeans,131
+41615,Norway,Jumpers,79
+41616,Spain,Shoes,61
+41617,Denmark,Clogs,112
+41618,USA,Shorts,92
+41619,Denmark,Shorts,54
+41620,France,Shorts,107
+41621,UK,Shoes,75
+41622,USA,Shorts,54
+41623,Spain,Clogs,85
+41624,UK,Shirts,96
+41625,France,Socks,68
+41626,Denmark,Shoes,58
+41627,Spain,Socks,73
+41628,USA,Socks,95
+41629,USA,Jeans,92
+41630,France,Jeans,99
+41631,Denmark,Shoes,57
+41632,Germany,Jumpers,52
+41633,UK,Socks,66
+41634,Denmark,Jumpers,105
+41635,USA,Socks,63
+41636,USA,Jumpers,57
+41637,Spain,Jumpers,143
+41638,Germany,Shirts,100
+41639,Norway,Jumpers,125
+41640,UK,Shorts,61
+41641,France,Socks,75
+41642,USA,Shorts,58
+41643,Norway,Clogs,64
+41644,Spain,Shorts,99
+41645,Germany,Clogs,79
+41646,Spain,Jeans,89
+41647,Spain,Shorts,137
+41648,UK,Shoes,145
+41649,Germany,Jeans,86
+41650,Denmark,Jumpers,143
+41651,Spain,Shoes,121
+41652,USA,Shorts,59
+41653,Denmark,Jeans,149
+41654,Spain,Clogs,150
+41655,USA,Shorts,140
+41656,USA,Shirts,100
+41657,UK,Shirts,123
+41658,Norway,Socks,87
+41659,UK,Shirts,94
+41660,Norway,Jumpers,109
+41661,USA,Shirts,129
+41662,France,Shorts,59
+41663,USA,Shorts,80
+41664,Spain,Socks,66
+41665,Spain,Shoes,75
+41666,Germany,Shorts,141
+41667,USA,Shoes,57
+41668,Spain,Socks,94
+41669,UK,Jumpers,150
+41670,France,Clogs,90
+41671,Germany,Jeans,69
+41672,France,Shoes,76
+41673,Norway,Shirts,109
+41674,Norway,Shorts,94
+41675,UK,Clogs,73
+41676,Denmark,Shoes,65
+41677,UK,Shoes,130
+41678,Germany,Socks,99
+41679,Norway,Shirts,98
+41680,Germany,Shirts,87
+41681,Germany,Shoes,69
+41682,France,Jumpers,140
+41683,Germany,Clogs,67
+41684,Norway,Jeans,105
+41685,Norway,Shorts,56
+41686,Spain,Jeans,68
+41687,UK,Shorts,109
+41688,Spain,Shoes,86
+41689,UK,Socks,75
+41690,Denmark,Jumpers,65
+41691,France,Shorts,99
+41692,France,Jumpers,118
+41693,Spain,Jeans,61
+41694,France,Jeans,78
+41695,Spain,Shoes,89
+41696,Germany,Jumpers,53
+41697,USA,Jumpers,97
+41698,Spain,Shirts,51
+41699,Germany,Shirts,78
+41700,UK,Socks,150
+41701,Germany,Shoes,112
+41702,Germany,Shoes,110
+41703,Germany,Socks,132
+41704,Norway,Jeans,52
+41705,Norway,Clogs,125
+41706,Germany,Clogs,101
+41707,Spain,Shoes,86
+41708,USA,Shirts,145
+41709,Spain,Jeans,119
+41710,Norway,Jeans,66
+41711,Norway,Jumpers,130
+41712,Norway,Shorts,67
+41713,USA,Socks,93
+41714,France,Socks,85
+41715,Spain,Jeans,101
+41716,France,Shirts,112
+41717,Norway,Clogs,123
+41718,Spain,Shoes,92
+41719,Spain,Shirts,130
+41720,USA,Socks,95
+41721,Spain,Shorts,54
+41722,UK,Jumpers,71
+41723,Denmark,Clogs,90
+41724,Denmark,Jumpers,81
+41725,USA,Jeans,124
+41726,Spain,Shoes,66
+41727,Germany,Shirts,93
+41728,UK,Shorts,133
+41729,UK,Shorts,118
+41730,Germany,Shoes,93
+41731,USA,Shirts,56
+41732,USA,Shoes,105
+41733,Germany,Socks,120
+41734,Norway,Shorts,128
+41735,France,Socks,98
+41736,Germany,Shoes,137
+41737,Spain,Shoes,129
+41738,Denmark,Shorts,86
+41739,Germany,Shoes,111
+41740,Norway,Shirts,122
+41741,Norway,Shorts,147
+41742,France,Shoes,69
+41743,USA,Jumpers,98
+41744,UK,Socks,137
+41745,France,Shoes,69
+41746,Spain,Shirts,110
+41747,France,Clogs,85
+41748,USA,Socks,96
+41749,USA,Shirts,136
+41750,France,Shirts,119
+41751,France,Socks,96
+41752,Denmark,Jeans,77
+41753,Germany,Clogs,67
+41754,Germany,Shirts,58
+41755,Norway,Clogs,79
+41756,Spain,Jeans,87
+41757,Germany,Jeans,87
+41758,France,Jumpers,77
+41759,Spain,Socks,136
+41760,France,Shirts,86
+41761,Norway,Socks,74
+41762,Spain,Shirts,63
+41763,USA,Socks,83
+41764,USA,Shoes,80
+41765,USA,Shoes,85
+41766,USA,Shirts,110
+41767,Germany,Jeans,63
+41768,Denmark,Shirts,92
+41769,Germany,Clogs,52
+41770,UK,Shoes,106
+41771,Spain,Jeans,68
+41772,Norway,Clogs,137
+41773,Germany,Shorts,110
+41774,USA,Clogs,136
+41775,Spain,Shorts,121
+41776,UK,Shirts,53
+41777,UK,Shirts,98
+41778,USA,Shoes,139
+41779,Germany,Socks,123
+41780,Germany,Jumpers,63
+41781,France,Shoes,63
+41782,USA,Shoes,114
+41783,France,Jeans,100
+41784,Germany,Jumpers,78
+41785,USA,Clogs,110
+41786,USA,Shorts,140
+41787,UK,Shirts,110
+41788,Norway,Jeans,51
+41789,France,Jumpers,79
+41790,France,Jeans,106
+41791,Denmark,Shorts,122
+41792,France,Shorts,129
+41793,UK,Clogs,88
+41794,Spain,Socks,83
+41795,Denmark,Shirts,121
+41796,Spain,Shorts,135
+41797,Spain,Jeans,129
+41798,Germany,Shirts,121
+41799,USA,Shorts,145
+41800,Spain,Shorts,138
+41801,Germany,Socks,62
+41802,Denmark,Shoes,85
+41803,Denmark,Jumpers,147
+41804,Spain,Shirts,124
+41805,Denmark,Shirts,137
+41806,France,Jeans,136
+41807,Denmark,Jeans,87
+41808,Norway,Jumpers,111
+41809,Norway,Shoes,146
+41810,Norway,Clogs,125
+41811,UK,Shoes,73
+41812,Germany,Socks,54
+41813,France,Shoes,128
+41814,USA,Socks,84
+41815,Norway,Shirts,68
+41816,UK,Jumpers,113
+41817,France,Socks,74
+41818,France,Socks,58
+41819,UK,Jeans,82
+41820,USA,Shoes,116
+41821,UK,Shirts,77
+41822,Denmark,Jumpers,100
+41823,Denmark,Jeans,146
+41824,Spain,Jeans,70
+41825,Denmark,Clogs,78
+41826,Germany,Shorts,55
+41827,USA,Shorts,50
+41828,France,Shorts,72
+41829,France,Socks,136
+41830,France,Clogs,145
+41831,Denmark,Jumpers,50
+41832,Norway,Shirts,135
+41833,Denmark,Shirts,74
+41834,France,Shorts,63
+41835,Germany,Shirts,76
+41836,Norway,Shoes,107
+41837,France,Shoes,64
+41838,Germany,Shorts,149
+41839,Norway,Shoes,147
+41840,UK,Clogs,65
+41841,USA,Jumpers,56
+41842,UK,Socks,71
+41843,Norway,Jumpers,70
+41844,Denmark,Shirts,53
+41845,UK,Shirts,102
+41846,Denmark,Clogs,104
+41847,Germany,Jumpers,119
+41848,UK,Jeans,130
+41849,Norway,Clogs,64
+41850,Germany,Jeans,65
+41851,Norway,Shorts,67
+41852,USA,Jeans,60
+41853,Spain,Jeans,88
+41854,Germany,Clogs,72
+41855,Norway,Shoes,101
+41856,USA,Jumpers,78
+41857,Denmark,Shorts,118
+41858,UK,Socks,53
+41859,USA,Shirts,77
+41860,France,Shoes,123
+41861,USA,Socks,74
+41862,Germany,Jumpers,135
+41863,Denmark,Clogs,122
+41864,France,Jeans,70
+41865,Germany,Shoes,95
+41866,Germany,Shorts,91
+41867,USA,Jeans,125
+41868,Germany,Socks,136
+41869,USA,Shorts,130
+41870,France,Jumpers,74
+41871,USA,Clogs,54
+41872,Norway,Shorts,81
+41873,Spain,Clogs,70
+41874,Norway,Socks,149
+41875,Denmark,Shorts,146
+41876,Norway,Socks,136
+41877,France,Shoes,67
+41878,Norway,Shorts,78
+41879,UK,Socks,66
+41880,USA,Shirts,76
+41881,Norway,Jumpers,75
+41882,Germany,Socks,139
+41883,USA,Shoes,65
+41884,Denmark,Shoes,80
+41885,USA,Socks,108
+41886,Norway,Clogs,54
+41887,Spain,Shirts,109
+41888,USA,Shorts,123
+41889,France,Shoes,146
+41890,France,Jumpers,114
+41891,Denmark,Shirts,109
+41892,Norway,Jeans,146
+41893,USA,Jumpers,54
+41894,USA,Shirts,92
+41895,UK,Shorts,143
+41896,USA,Clogs,146
+41897,UK,Jumpers,79
+41898,USA,Clogs,64
+41899,Spain,Shoes,95
+41900,France,Shorts,141
+41901,UK,Shoes,141
+41902,UK,Shorts,75
+41903,Norway,Shorts,73
+41904,Denmark,Shoes,126
+41905,UK,Shorts,130
+41906,Denmark,Shoes,69
+41907,Denmark,Clogs,114
+41908,Norway,Socks,90
+41909,Spain,Jumpers,98
+41910,USA,Shorts,78
+41911,Spain,Jumpers,139
+41912,Norway,Shoes,115
+41913,Germany,Shoes,96
+41914,Denmark,Shirts,116
+41915,UK,Jeans,123
+41916,Spain,Jeans,56
+41917,Spain,Clogs,101
+41918,Spain,Clogs,141
+41919,France,Socks,112
+41920,Norway,Shirts,80
+41921,Norway,Jeans,82
+41922,Denmark,Shorts,102
+41923,Germany,Shoes,121
+41924,Denmark,Shorts,131
+41925,UK,Socks,113
+41926,Spain,Socks,136
+41927,Spain,Jumpers,137
+41928,USA,Jeans,131
+41929,USA,Jeans,127
+41930,USA,Jeans,145
+41931,Denmark,Shorts,92
+41932,UK,Jeans,100
+41933,Germany,Shorts,68
+41934,UK,Shoes,129
+41935,USA,Clogs,67
+41936,USA,Socks,111
+41937,France,Clogs,139
+41938,Germany,Shoes,140
+41939,USA,Shirts,124
+41940,Spain,Jumpers,80
+41941,UK,Shirts,145
+41942,USA,Jumpers,64
+41943,Spain,Socks,53
+41944,UK,Shoes,59
+41945,UK,Shoes,65
+41946,Germany,Shirts,111
+41947,USA,Shorts,119
+41948,France,Shorts,62
+41949,Norway,Shorts,122
+41950,Denmark,Shorts,107
+41951,Spain,Jeans,87
+41952,Spain,Shirts,150
+41953,France,Jeans,66
+41954,USA,Shirts,127
+41955,UK,Jeans,118
+41956,France,Shirts,74
+41957,Spain,Clogs,129
+41958,Germany,Shorts,91
+41959,USA,Shirts,105
+41960,Germany,Jumpers,139
+41961,Norway,Socks,108
+41962,Norway,Shirts,139
+41963,USA,Jumpers,148
+41964,Norway,Clogs,98
+41965,Germany,Shorts,89
+41966,France,Jumpers,57
+41967,Germany,Jeans,102
+41968,UK,Clogs,105
+41969,Spain,Shoes,133
+41970,Germany,Shoes,54
+41971,USA,Shorts,90
+41972,Norway,Shoes,77
+41973,France,Jeans,87
+41974,Norway,Shirts,148
+41975,USA,Socks,83
+41976,France,Shorts,85
+41977,Germany,Shoes,139
+41978,USA,Jumpers,89
+41979,France,Shorts,67
+41980,USA,Shoes,70
+41981,Norway,Shorts,120
+41982,France,Jeans,88
+41983,UK,Shoes,105
+41984,Germany,Jeans,102
+41985,France,Jumpers,129
+41986,France,Jumpers,79
+41987,Norway,Shoes,88
+41988,Denmark,Clogs,87
+41989,UK,Shoes,96
+41990,Germany,Socks,65
+41991,Denmark,Clogs,61
+41992,France,Socks,145
+41993,USA,Jumpers,61
+41994,UK,Clogs,52
+41995,UK,Shirts,93
+41996,Germany,Jumpers,132
+41997,Norway,Jumpers,50
+41998,Denmark,Shirts,141
+41999,Germany,Shoes,122
+42000,USA,Socks,75
+42001,Denmark,Shorts,114
+42002,Denmark,Jeans,145
+42003,UK,Shirts,92
+42004,France,Shorts,141
+42005,UK,Shirts,105
+42006,Denmark,Shoes,147
+42007,France,Shirts,145
+42008,Denmark,Jeans,128
+42009,France,Clogs,106
+42010,UK,Socks,80
+42011,USA,Shorts,82
+42012,USA,Jumpers,118
+42013,Germany,Jeans,130
+42014,Germany,Jeans,82
+42015,Germany,Clogs,127
+42016,Spain,Socks,137
+42017,France,Jeans,101
+42018,Norway,Jeans,107
+42019,USA,Shirts,61
+42020,USA,Shoes,137
+42021,USA,Jumpers,52
+42022,Norway,Shirts,100
+42023,Germany,Shoes,90
+42024,Spain,Shorts,133
+42025,USA,Socks,143
+42026,UK,Clogs,109
+42027,Denmark,Shoes,71
+42028,Denmark,Shirts,87
+42029,USA,Jumpers,53
+42030,UK,Shorts,95
+42031,Denmark,Jeans,60
+42032,Spain,Jumpers,58
+42033,Denmark,Jeans,52
+42034,Denmark,Socks,76
+42035,USA,Jeans,72
+42036,USA,Shoes,133
+42037,Norway,Socks,112
+42038,UK,Socks,82
+42039,Germany,Shorts,114
+42040,Denmark,Shorts,137
+42041,Norway,Shirts,106
+42042,UK,Jumpers,115
+42043,USA,Jumpers,104
+42044,UK,Shorts,91
+42045,USA,Shirts,110
+42046,UK,Shoes,68
+42047,USA,Shorts,59
+42048,France,Socks,113
+42049,USA,Jumpers,60
+42050,Norway,Jeans,80
+42051,Germany,Jeans,73
+42052,France,Clogs,118
+42053,France,Jumpers,129
+42054,USA,Jeans,50
+42055,Germany,Jumpers,61
+42056,UK,Shorts,93
+42057,Denmark,Jumpers,93
+42058,Norway,Jeans,70
+42059,USA,Shoes,76
+42060,Spain,Jeans,124
+42061,Denmark,Socks,148
+42062,USA,Shoes,78
+42063,UK,Socks,132
+42064,UK,Shorts,108
+42065,USA,Clogs,107
+42066,Denmark,Shoes,83
+42067,Spain,Clogs,143
+42068,UK,Shorts,138
+42069,UK,Shirts,69
+42070,Spain,Socks,64
+42071,UK,Jeans,57
+42072,Norway,Shoes,142
+42073,USA,Shorts,116
+42074,Denmark,Socks,58
+42075,France,Shirts,127
+42076,Denmark,Shorts,127
+42077,France,Jeans,75
+42078,Norway,Shoes,84
+42079,Germany,Clogs,118
+42080,Denmark,Shoes,131
+42081,Germany,Shorts,145
+42082,Germany,Shoes,110
+42083,UK,Shorts,106
+42084,France,Socks,111
+42085,UK,Socks,117
+42086,UK,Socks,142
+42087,France,Shirts,150
+42088,USA,Shorts,55
+42089,UK,Jeans,60
+42090,UK,Shoes,81
+42091,USA,Clogs,126
+42092,France,Clogs,51
+42093,Germany,Shoes,109
+42094,Norway,Shoes,117
+42095,Germany,Shoes,67
+42096,UK,Socks,103
+42097,Denmark,Jumpers,70
+42098,Spain,Jeans,66
+42099,Spain,Jumpers,108
+42100,Norway,Socks,99
+42101,Spain,Shoes,102
+42102,Germany,Socks,93
+42103,France,Shirts,117
+42104,Spain,Socks,106
+42105,France,Shorts,112
+42106,Germany,Shoes,97
+42107,UK,Socks,90
+42108,France,Shoes,72
+42109,USA,Shorts,138
+42110,USA,Shirts,102
+42111,Denmark,Socks,50
+42112,Denmark,Jumpers,103
+42113,UK,Socks,86
+42114,Germany,Jumpers,89
+42115,UK,Jeans,101
+42116,UK,Shorts,115
+42117,USA,Shirts,108
+42118,Denmark,Clogs,137
+42119,USA,Shorts,138
+42120,Denmark,Clogs,50
+42121,France,Shorts,122
+42122,Spain,Shorts,65
+42123,Norway,Clogs,112
+42124,Germany,Jumpers,106
+42125,France,Socks,62
+42126,France,Socks,141
+42127,Spain,Jeans,100
+42128,France,Clogs,67
+42129,Norway,Shoes,102
+42130,France,Shoes,141
+42131,USA,Shorts,117
+42132,Spain,Clogs,143
+42133,Spain,Shorts,78
+42134,USA,Shirts,88
+42135,Germany,Shirts,59
+42136,Germany,Shoes,115
+42137,France,Shorts,105
+42138,Denmark,Shirts,115
+42139,Germany,Jeans,58
+42140,UK,Socks,85
+42141,Spain,Clogs,116
+42142,Denmark,Jeans,50
+42143,UK,Clogs,119
+42144,UK,Jumpers,114
+42145,Spain,Shirts,56
+42146,USA,Shorts,131
+42147,Germany,Shirts,132
+42148,France,Jeans,120
+42149,USA,Clogs,73
+42150,Norway,Shorts,68
+42151,France,Shoes,131
+42152,Spain,Clogs,73
+42153,Denmark,Shorts,61
+42154,Spain,Jeans,69
+42155,Spain,Jumpers,100
+42156,Denmark,Clogs,114
+42157,Norway,Socks,86
+42158,Norway,Socks,57
+42159,Spain,Clogs,66
+42160,Germany,Socks,70
+42161,Spain,Socks,134
+42162,Germany,Jeans,90
+42163,UK,Socks,69
+42164,France,Shorts,98
+42165,France,Jumpers,136
+42166,USA,Shoes,91
+42167,Germany,Shoes,55
+42168,France,Socks,130
+42169,Denmark,Shorts,147
+42170,France,Shorts,111
+42171,Spain,Shirts,124
+42172,Denmark,Clogs,80
+42173,UK,Socks,129
+42174,UK,Jeans,135
+42175,UK,Clogs,136
+42176,Germany,Clogs,50
+42177,USA,Shirts,93
+42178,Germany,Shirts,82
+42179,Denmark,Socks,136
+42180,Spain,Shoes,61
+42181,Spain,Clogs,136
+42182,Norway,Shorts,112
+42183,Spain,Clogs,53
+42184,UK,Jumpers,51
+42185,UK,Jeans,148
+42186,Germany,Shirts,133
+42187,Germany,Jumpers,54
+42188,Norway,Shirts,122
+42189,Norway,Socks,148
+42190,Spain,Socks,54
+42191,France,Jeans,140
+42192,Denmark,Jeans,86
+42193,Denmark,Jeans,53
+42194,USA,Jeans,106
+42195,Germany,Shoes,53
+42196,USA,Clogs,88
+42197,Denmark,Shirts,112
+42198,Spain,Clogs,122
+42199,Germany,Jumpers,90
+42200,Germany,Socks,133
+42201,Germany,Socks,56
+42202,Spain,Socks,71
+42203,Germany,Shoes,142
+42204,France,Socks,142
+42205,France,Socks,132
+42206,Norway,Clogs,124
+42207,France,Jeans,138
+42208,Denmark,Shoes,106
+42209,USA,Shoes,66
+42210,Germany,Jumpers,75
+42211,Norway,Shoes,74
+42212,UK,Shoes,70
+42213,Germany,Shorts,112
+42214,Norway,Jumpers,110
+42215,Germany,Shirts,53
+42216,France,Socks,69
+42217,UK,Jeans,66
+42218,Norway,Clogs,84
+42219,UK,Jeans,121
+42220,USA,Jeans,125
+42221,Denmark,Shoes,149
+42222,Norway,Shoes,120
+42223,France,Clogs,139
+42224,Norway,Jeans,93
+42225,Norway,Clogs,127
+42226,UK,Socks,119
+42227,Denmark,Shoes,125
+42228,Germany,Shoes,76
+42229,France,Shirts,92
+42230,UK,Shirts,77
+42231,USA,Socks,60
+42232,France,Shirts,120
+42233,Spain,Jumpers,68
+42234,UK,Shoes,128
+42235,Germany,Shirts,145
+42236,Germany,Shoes,57
+42237,UK,Jeans,62
+42238,Norway,Shirts,58
+42239,Spain,Shorts,51
+42240,USA,Jeans,56
+42241,France,Shirts,87
+42242,Norway,Jeans,105
+42243,UK,Shoes,66
+42244,Spain,Shorts,122
+42245,Spain,Socks,65
+42246,Denmark,Socks,119
+42247,Denmark,Shirts,129
+42248,Spain,Socks,55
+42249,UK,Clogs,50
+42250,Norway,Clogs,138
+42251,Spain,Clogs,57
+42252,UK,Shoes,59
+42253,USA,Jeans,81
+42254,USA,Shorts,54
+42255,Norway,Clogs,58
+42256,USA,Shirts,144
+42257,Germany,Shorts,101
+42258,Norway,Socks,87
+42259,Germany,Shorts,55
+42260,Germany,Shorts,56
+42261,USA,Jumpers,117
+42262,Denmark,Jumpers,57
+42263,France,Clogs,93
+42264,France,Shoes,100
+42265,France,Shirts,149
+42266,Norway,Clogs,120
+42267,Spain,Shirts,128
+42268,Denmark,Shorts,66
+42269,Germany,Clogs,54
+42270,Germany,Jumpers,60
+42271,Spain,Jumpers,92
+42272,Germany,Socks,94
+42273,Denmark,Socks,104
+42274,Germany,Shoes,110
+42275,Spain,Jumpers,74
+42276,Germany,Clogs,139
+42277,Germany,Jumpers,57
+42278,France,Jeans,61
+42279,Norway,Shirts,56
+42280,France,Shorts,148
+42281,Denmark,Clogs,106
+42282,Denmark,Shorts,106
+42283,Norway,Socks,122
+42284,Germany,Socks,82
+42285,Germany,Socks,86
+42286,Spain,Shirts,130
+42287,Norway,Jumpers,99
+42288,Germany,Jumpers,135
+42289,Denmark,Shoes,76
+42290,Denmark,Jeans,119
+42291,Denmark,Socks,102
+42292,Norway,Shorts,149
+42293,UK,Shorts,65
+42294,USA,Jeans,58
+42295,Germany,Shirts,123
+42296,UK,Jumpers,74
+42297,Spain,Socks,65
+42298,UK,Shirts,142
+42299,France,Socks,138
+42300,Germany,Socks,80
+42301,Denmark,Clogs,100
+42302,Denmark,Shorts,99
+42303,UK,Shoes,53
+42304,Denmark,Shorts,75
+42305,Norway,Jeans,131
+42306,France,Shoes,142
+42307,Denmark,Shirts,122
+42308,Denmark,Shorts,62
+42309,USA,Shoes,58
+42310,UK,Socks,63
+42311,Spain,Jeans,81
+42312,USA,Shorts,112
+42313,Denmark,Shorts,145
+42314,USA,Jeans,70
+42315,USA,Shoes,69
+42316,France,Shorts,83
+42317,Denmark,Shoes,132
+42318,Germany,Jeans,98
+42319,Germany,Socks,86
+42320,USA,Shorts,55
+42321,Norway,Shoes,133
+42322,Germany,Socks,52
+42323,Spain,Jumpers,82
+42324,Denmark,Jeans,51
+42325,France,Socks,90
+42326,USA,Shorts,79
+42327,Denmark,Jumpers,139
+42328,Spain,Jumpers,70
+42329,Germany,Jumpers,51
+42330,UK,Socks,71
+42331,Denmark,Jumpers,63
+42332,Norway,Clogs,128
+42333,UK,Socks,93
+42334,Denmark,Jeans,116
+42335,Denmark,Shoes,65
+42336,France,Clogs,52
+42337,USA,Shirts,113
+42338,Denmark,Shoes,129
+42339,France,Shoes,94
+42340,Denmark,Jeans,79
+42341,Germany,Shorts,146
+42342,UK,Shorts,97
+42343,Norway,Shorts,143
+42344,Denmark,Clogs,95
+42345,Denmark,Shoes,120
+42346,Spain,Socks,139
+42347,France,Socks,91
+42348,UK,Jeans,119
+42349,UK,Clogs,70
+42350,UK,Jeans,51
+42351,Norway,Jeans,93
+42352,Germany,Jeans,95
+42353,Spain,Shirts,134
+42354,Germany,Jeans,120
+42355,USA,Jumpers,95
+42356,Spain,Jumpers,126
+42357,Germany,Socks,134
+42358,UK,Jeans,118
+42359,USA,Socks,112
+42360,Spain,Clogs,102
+42361,UK,Shorts,52
+42362,Germany,Shorts,106
+42363,USA,Clogs,140
+42364,UK,Socks,136
+42365,UK,Shorts,80
+42366,France,Shorts,114
+42367,France,Shoes,96
+42368,Germany,Clogs,102
+42369,Norway,Shorts,129
+
+
+];
+///$tab Exit
+EXIT Script; 

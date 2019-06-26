@@ -1,0 +1,86 @@
+/***********************************************************************************************
+* Subroutine to get contents of Google Sheets individual sheet into a table
+*	Author:
+*		Juraj Misina (https://community.qlik.com/people/juraj.misina) 
+*	Version:
+*		0.1 (2018-02-05) 
+*	Syntax:
+*		Call(SheetID, SheetName[, TableName]);
+*	Example:
+*		Call(SheetID, SheetName); //Will look into the SheetID document and load sheet labeled SheetName into a table called SheetName
+*		Call(SheetID, SheetName, TableName); //Will look into the SheetID document and load sheet labeled SheetName into a table called TableName
+***********************************************************************************************/
+Sub GetSheet(_Document, _Sheet, _Table)
+
+	LET _Table = If(Len('$(_Table)')=0, _Sheet, _Table);
+	
+	RestConnectorMasterTable:
+	SQL SELECT 
+		"__KEY_root",
+		(SELECT 
+			"__FK_values",
+			"__KEY_values",
+			(SELECT 
+				"@Value",
+				"__FK_values_u0"
+			FROM "values" FK "__FK_values_u0" ArrayValueAlias "@Value")
+		FROM "values" PK "__KEY_values" FK "__FK_values")
+	FROM JSON (wrap on) "root" PK "__KEY_root"
+	WITH CONNECTION (
+		URL "https://sheets.googleapis.com/v4/spreadsheets/$(_Document)/values/$(_Sheet)",
+		HTTPHEADER "Authorization" "Bearer $(vAccessToken)"
+	);
+
+
+	Tmp_Values:
+	LOAD
+		@Value,
+		__FK_values_u0	as __FK_values,
+	    RowNo()	as RowNo
+	RESIDENT RestConnectorMasterTable
+	WHERE Not(IsNull(__FK_values_u0));
+
+
+	DROP TABLE RestConnectorMasterTable;
+
+	Tmp_Labels:
+	LOAD Distinct
+		@Value,
+		__FK_values
+	RESIDENT Tmp_Values
+	WHERE __FK_values=1;
+
+	LET vLoadStatement = ;
+	For i=0 to NoOfRows('Tmp_Labels')-1
+	LET sbfld=$(i)+1;
+		LET vLoadStatement = vLoadStatement&'Subfield(Values, ''|'', $(sbfld))	as ['&Peek('@Value', $(i), 'Tmp_Labels')&']';
+		LET vLoadStatement = vLoadStatement&If($(i)<NoOfRows('Tmp_Labels')-1, ',')&chr(10);
+
+	Next i
+
+	LET i =;
+	LET sbfld =;
+
+	Drop Table Tmp_Labels;
+
+	[$(_Table)]:
+	LOAD
+		$(vLoadStatement)
+	;
+	LOAD
+		Concat(@Value, '|', RowNo)	as Values
+	Resident Tmp_Values
+	WHERE __FK_values>1
+	Group By
+		__FK_values
+	;
+	
+	LET vLoadStatement =;
+
+	Drop Table Tmp_Values;
+
+	LET _Document = ;
+	LET _Sheet = ;
+	LET _Table = ;
+	
+EndSub
